@@ -1,3 +1,4 @@
+from typing import Tuple
 
 # Database connection settings
 DB_SETTINGS = {
@@ -7,18 +8,24 @@ DB_SETTINGS = {
     'password': "password"
 }
 
-from flask import Flask, request, jsonify
+from flask import Flask, request
 import psycopg2
 from psycopg2.extras import execute_values
 
 app = Flask(__name__)
 
 @app.route("/clear_db", methods=["POST"])
-def clear_database():
+def clear_database() -> Tuple[str, int]:
+    """
+    Clear all entries from the point_cloud table and reset the scan_id sequence
+
+    :return: Tuple containing a message and status code
+    """
     try:
         connection = psycopg2.connect(**DB_SETTINGS)
         cursor = connection.cursor()
         cursor.execute("TRUNCATE TABLE point_cloud;")
+
         cursor.execute("ALTER SEQUENCE scan_id_seq RESTART WITH 1;")
 
         connection.commit()
@@ -31,10 +38,14 @@ def clear_database():
             connection.close()
 
 @app.route("/", methods=["POST"])
-def upload_point_cloud():
+def upload_point_cloud() -> Tuple[str, int]:
+    """
+    Upload a point cloud to the database
+
+    :return: Tuple containing a message and status code
+    """
     try:
         # Parse JSON payload
-        print(request)
         data = request.get_json()
 
         # Validate the data
@@ -63,7 +74,6 @@ def upload_point_cloud():
 
         return f"Inserted {len(tuples)} points with scan_id {new_scan_id}", 200
     except Exception as e:
-        print(e.with_traceback())
         return f"Error inserting data into database: {e}", 500
     finally:
         if 'connection' in locals():
