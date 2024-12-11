@@ -1,13 +1,8 @@
-import multiprocessing
-import os
-import time
-
 import open3d as o3d
 import numpy as np
 from matplotlib import pyplot as plt
 
-import process_point_clouds
-from process_point_clouds import ProcessPointClouds, ProcessPointCloudsThread
+from process_point_clouds import ProcessPointCloudsThread
 
 import os
 os.environ["OMP_NUM_THREADS"] = str(os.cpu_count())
@@ -33,7 +28,6 @@ class ViewController:
         render_options.point_size = 7.0  # Increase point size
         render_options.background_color = np.array([1.0, 1.0, 1.0])  # White background
         render_options.light_on = True  # Enable lighting for better structure
-
 
         self.processor = ProcessPointCloudsThread()
 
@@ -63,6 +57,10 @@ class ViewController:
                 # Fetch the latest scan data
                 new_points = self.processor.get_latest_map()
 
+                #TODO:
+                # This logic for updating the visualizer is based on previous implementation,
+                # update it to to make more sense with the current implementation
+
                 # None returned only when the database in empty i.e. after being cleared by the user
                 # We need to clear the visualizer as well in preparation for new data
                 if new_points is None:
@@ -77,14 +75,12 @@ class ViewController:
                     # Update the point cloud if new data is available
                     new_points = new_points.voxel_down_sample(voxel_size=0.02)
                     self.point_cloud.points = new_points.points
-                    # self.point_cloud.points.voxel_down_sample(voxel_size=0.01)
-                    colors = np.asarray(self.point_cloud.colors)
+
                     points = np.asarray(self.point_cloud.points)
                     depths = points[:, 2]
                     depth_normalized = (depths - depths.min()) / (depths.max() - depths.min())  # Normalize to [0, 1]
                     colors = plt.cm.viridis(depth_normalized)[:, :3]  # Apply colormap and extract RGB
                     self.point_cloud.colors = o3d.utility.Vector3dVector(colors)
-                    # self.point_cloud.colors = new_points.colors
 
                     # hack because open3d add_geometry() is weird
                     if temp:

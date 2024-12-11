@@ -56,13 +56,13 @@ def upload_point_cloud() -> Tuple[str, int]:
         connection = psycopg2.connect(**DB_SETTINGS)
         cursor = connection.cursor()
 
-        # Fetch the latest scan_id
+        # Fetch the latest scan_id, the scan id is how we know
         cursor.execute("SELECT nextval('scan_id_seq')")
         new_scan_id = cursor.fetchone()
         print(new_scan_id)
 
 
-    # Format the data for bulk insertion
+        # Format the data for bulk insertion
         tuples = [(new_scan_id, point['x'], point['y'], point['z']) for point in data]
 
         # Insert into the database
