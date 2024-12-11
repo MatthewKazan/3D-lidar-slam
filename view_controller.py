@@ -1,8 +1,16 @@
+import multiprocessing
 import os
+import time
+
 import open3d as o3d
 import numpy as np
+from matplotlib import pyplot as plt
 
-from process_point_clouds import ProcessPointClouds
+import process_point_clouds
+from process_point_clouds import ProcessPointClouds, ProcessPointCloudsThread
+
+import os
+os.environ["OMP_NUM_THREADS"] = str(os.cpu_count())
 
 
 class ViewController:
@@ -21,9 +29,14 @@ class ViewController:
         self.axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0])  # Adjust size as needed
         self.vis.add_geometry(self.axis)
         # Set initial view parameters (optional)
-        self.vis.get_render_option().background_color = np.array([1, 1, 1])  # White background
+        render_options = self.vis.get_render_option()
+        render_options.point_size = 7.0  # Increase point size
+        render_options.background_color = np.array([1.0, 1.0, 1.0])  # White background
+        render_options.light_on = True  # Enable lighting for better structure
 
-        self.processor = ProcessPointClouds()
+
+        self.processor = ProcessPointCloudsThread()
+
 
     def set_initial_view(self) -> None:
         """
@@ -32,6 +45,7 @@ class ViewController:
         """
         ctr = self.vis.get_view_control()
         param = o3d.io.read_pinhole_camera_parameters(os.path.join(os.path.curdir, 'viewpoint.json'))
+
         ctr.convert_from_pinhole_camera_parameters(param, allow_arbitrary=True)
 
 
@@ -40,27 +54,36 @@ class ViewController:
         Run the visualizer and update the point cloud in real-time as new data is available
         """
         # Start the processing thread in the background
-        self.processor.processing_thread.start()
+        self.processor.start()
         self.set_initial_view()
         self.vis.add_geometry(self.point_cloud)
         temp = True
         try:
             while True:
                 # Fetch the latest scan data
-                new_points = self.processor.get_new_elements()
+                new_points = self.processor.get_latest_map()
 
                 # None returned only when the database in empty i.e. after being cleared by the user
                 # We need to clear the visualizer as well in preparation for new data
                 if new_points is None:
-                    self.point_cloud.clear()
-                    self.vis.clear_geometries()
-                    self.vis.add_geometry(self.point_cloud)
-                    self.vis.add_geometry(self.axis)
-                    self.set_initial_view()
+                    if len(self.point_cloud.points) > 0:
+                        self.point_cloud.clear()
+                        self.vis.clear_geometries()
+                        self.vis.add_geometry(self.point_cloud)
+                        self.vis.add_geometry(self.axis)
+                        self.set_initial_view()
 
                 elif len(new_points.points) > 0:
                     # Update the point cloud if new data is available
+                    new_points = new_points.voxel_down_sample(voxel_size=0.02)
                     self.point_cloud.points = new_points.points
+                    # self.point_cloud.points.voxel_down_sample(voxel_size=0.01)
+                    colors = np.asarray(self.point_cloud.colors)
+                    points = np.asarray(self.point_cloud.points)
+                    depths = points[:, 2]
+                    depth_normalized = (depths - depths.min()) / (depths.max() - depths.min())  # Normalize to [0, 1]
+                    colors = plt.cm.viridis(depth_normalized)[:, :3]  # Apply colormap and extract RGB
+                    self.point_cloud.colors = o3d.utility.Vector3dVector(colors)
                     # self.point_cloud.colors = new_points.colors
 
                     # hack because open3d add_geometry() is weird
@@ -80,11 +103,11 @@ class ViewController:
         except KeyboardInterrupt:
             print("Stopped by user")
 
+
         # Close the visualizer when done
         self.vis.destroy_window()
-        self.processor.process = False
-        self.processor.processing_thread.join(timeout=10)
+        self.processor.stop()
 
-
-view = ViewController()
-view.run()
+if __name__ == "__main__":
+    view = ViewController()
+    view.run()

@@ -1,0 +1,169 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{cite}
+
+\begin{document}
+
+    \title{Indoor SLAM Using ICP and an iPhone}
+
+    \author{
+        \IEEEauthorblockN{Matthew Kazan}
+        \IEEEauthorblockA{\textit{Khoury College of Computer Sciences} \\
+        \textit{Northeastern University} \\
+        Boston, MA \\
+        kazan.m@northeastern.edu}
+    }
+
+    \maketitle
+
+    \begin{abstract}
+        This paper presents the development of a system for 3D mapping using Iterative Closest Point
+        (ICP) Simultaneous Localization and Mapping (SLAM). Leveraging the LiDAR scanner on an
+        iPhone, the system collects sequential point cloud data, which is transmitted to a web
+        server for processing.
+        The server applies ICP to align the scans and generate a global 3D map of the environment.
+        This approach demonstrates the feasibility of constructing accurate, low-cost 3D maps
+        using common, readily available hardware.
+        Results showcase successful alignment of point clouds and the generation of a cohesive room-scale map.
+        Challenges such as managing noise and drift are also discussed, alongside potential improvements.
+    \end{abstract}
+
+
+
+    \section{Introduction}
+    Accurate 3D mapping has many applications in robotics, indoor navigation, and augmented reality.
+    Traditional mapping systems often require expensive, specialized hardware, which limits accessibility.
+    The LiDAR scanner embedded in consumer-grade devices, such as the iPhone, presents a unique opportunity
+    to apply Simultaneous Localization and Mapping (SLAM) techniques to real-world data without requiring
+    specialized equipment.
+
+    Implementing SLAM using an iPhone's LiDAR scanner provides a practical opportunity to deepen
+    understanding of ICP-based SLAM techniques.
+    This project bridges theoretical concepts from lectures with hands-on applications,
+    enhancing both learning and technical skill development.
+
+    \section{Problem Statement}
+    The problem studied in this project involves constructing a global
+    3D map of an indoor environment by aligning sequential LiDAR scans.
+    Mathematically, the task is to solve for the transformation matrix $T = [R|t]$, where $R$
+    is a rotation matrix, and $t$ is a translation vector that aligns consecutive point clouds
+    $X$ and $Y$: \begin{equation} T = \arg\min_T \sum_{i=1}^N |y_i - T x_i|^2, \end{equation}
+    where $x_i \in X$ and $y_i \in Y$ are corresponding points in the two scans.
+    Challenges include handling noise, managing drift over multiple scans, and ensuring computational efficiency.
+
+    \section{Proposed Solution}
+    The proposed method leverages the Iterative Closest Point (ICP) algorithm to align consecutive
+    point clouds collected by the iPhone's LiDAR scanner.
+    The pipeline includes:
+
+    \subsection{Data Collection}
+    A custom iOS app captures LiDAR scans at 0.1-second intervals and uploads them to a local web server.
+
+    \begin{figure}[htbp]
+        \centering
+        \includegraphics[width=0.28\textwidth]{iphone_app}
+        \caption{Screenshot of the iPhone app used to upload scans to the web server.}
+        \label{fig:iphone_app}
+    \end{figure}
+
+    \subsection{Web Server}
+    A Flask server enables users to upload scans to a PostgreSQL database and clear the database as needed.
+
+    \subsection{Point Cloud Processing}
+    A continuous loop checks the database for new scans and processes them.
+    The scans are converted from pixel coordinates to 3D coordinates using the known camera intrinsics of the iPhone.
+
+    \subsection{ICP Alignment}
+    ICP is applied to align the new scan with the global map using the Open3D point-to-point
+    ICP transformation estimation function.
+    The aligned scan is added to the global map, which is placed in a thread-safe queue for the GUI to display.
+    Occasionally, statistical outliers in the global map are removed, and the result is downsampled
+    to reduce complexity and memory usage.
+
+    \subsection{Point Cloud GUI}
+    An interactive Open3D GUI displays the global point cloud map as it is updated.
+    The map can be inspected, zoomed, and rotated in real time.
+    Once the processing thread completes, the global map is saved to a .ply file for further analysis.
+
+    \begin{figure}[htbp]
+        \centering
+        \includegraphics[width=0.48\textwidth]{desk_in_map}
+        \caption{Screenshot of a desk and chair displayed on the GUI as a point cloud.}
+        \label{fig:desk_in_map}
+    \end{figure}
+
+    \subsection{Point-to-Point Algorithm}
+    The point-to-point ICP algorithm minimizes the Euclidean distance between corresponding points
+    in the source point cloud $P$ and the target point cloud $Q$.
+    Mathematically, the cost function is:
+    \begin{equation}
+        C(T) = \sum_{i} ||y_i - (R_k x_i + t_k)||^2,
+    \end{equation}
+    where:
+    \begin{itemize}
+        \item $T_k = [R_k|t_k]$ is the current transformation matrix estimate with rotation $R$ and translation $t$.
+        \item $x_i \in X$ is a point in the source cloud.
+        \item $y_i \in Y$ is the corresponding point in the target cloud.
+    \end{itemize}
+    The algorithm iteratively updates $R$ and $t$ until convergence criteria, such as a threshold
+    on the cost function change or a maximum number of iterations, are met.
+
+    \section{Results}
+    The performance of the proposed system was evaluated using the following metrics:
+    \begin{itemize}
+        \item \textbf{Mean Squared Error (MSE):} Average squared distance between corresponding points in consecutive aligned scans.
+        \item \textbf{Hausdorff Distance:} Maximum distance from a point in one point cloud to the nearest point in the other point cloud.
+        \item \textbf{Mean Distance:} Average distance between corresponding points in the aligned scans.
+    \end{itemize}
+
+    Experimental results demonstrated that the system achieved an MSE of 1.23 cm$^2$
+    , a Hausdorff distance of 0.8 meters due to outliers, and a mean distance of 4.58 cm.
+    Given that the room size is approximately 3 meters by 3 meters, the MSE and mean distance error
+    represents around 1\% of the room's dimensions, indicating high precision in alignment.
+    These metrics validate the system's effectiveness in producing accurate 3D maps.
+    However, drift was observed, with the last and first scans misaligned by approximately 20 cm
+    due to cumulative errors.
+
+    \begin{figure}[htbp]
+        \centering
+        \includegraphics[width=0.40\textwidth]{overlay_with_gt}
+        \caption{Screenshot of the global map overlaid with the ground truth for comparison.}
+        \label{fig:overlay_screenshot}
+    \end{figure}
+
+    \section{Conclusion}
+    This project demonstrates the feasibility of constructing 3D maps using ICP SLAM with an iPhone's LiDAR scanner.
+    The system achieves reasonable accuracy and efficiency, highlighting the potential of
+    low-cost hardware for 3D mapping.
+
+    However, several challenges were encountered during the development and evaluation process.
+    Drift over time emerged as a significant issue, particularly in longer sequences,
+    where cumulative alignment errors caused noticeable deviations.
+    Rapid camera movements also led to poor alignment results, as the ICP algorithm struggles
+    with large transformations between scans.
+    Another challenge was managing outliers in the point clouds, as some remained even after
+    applying statistical removal techniques.
+    These issues highlight the need for enhancements to improve robustness and accuracy.
+
+    Future work will focus on implementing drift correction mechanisms, such as loop closure
+    techniques, to minimize cumulative errors.
+    Enhancing outlier removal methods, possibly through more sophisticated filtering algorithms or
+    machine learning-based approaches, is also a priority.
+    Additionally, optimizing performance to handle larger global maps and faster processing times
+    will be crucial for real-time applications.
+    Finally, integrating the system into the iPhone app for seamless on-device processing and
+    visualization would greatly improve user experience and usability.
+
+    \begin{thebibliography}{00}
+        \bibitem{b1} D. Holz and S. Behnke, "Sancta simplicitas - on the efficiency and achievable results of SLAM using ICP-based incremental registration," 2010 IEEE International Conference on Robotics and Automation, Anchorage, AK, USA, 2010, pp. 1380-1387, doi: 10.1109/ROBOT.2010.5509918.
+        \bibitem{b2} Surmann, Hartmut & N"uchter, Andreas & Hertzberg, Joachim. (2003). An autonomous mobile robot with a 3D laser range finder for 3D exploration and digitalization of indoor environments. Robotics and Autonomous Systems. 45. 181-198. 10.1016/j.robot.2003.09.004.
+        \bibitem{b3} Y. Chen and G. Medioni, "Object modeling by registration of multiple range images," Proceedings. 1991 IEEE International Conference on Robotics and Automation, Sacramento, CA, USA, 1991, pp. 2724-2729 vol.3, doi: 10.1109/ROBOT.1991.132043.
+    \end{thebibliography}
+
+\end{document}
+

@@ -1,12 +1,15 @@
-import random
+import multiprocessing
+import queue
 import threading
 import time
+from collections import deque
+from multiprocessing import Queue, Process
 from typing import Optional
 
 import open3d as o3d
 import numpy as np
 import pandas as pd
-from sqlalchemy import create_engine, Table, MetaData
+from sqlalchemy import create_engine, Table, MetaData, text
 
 # Database connection settings
 DB_SETTINGS = {
@@ -16,21 +19,9 @@ DB_SETTINGS = {
     'password': "password"
 }
 
+import os
+os.environ["OMP_NUM_THREADS"] = str(os.cpu_count())
 
-def compute_normals(point_cloud, radius=0.1, max_nn=30):
-    """
-    Compute normals for a point cloud. No longer used in the final implementation.
-
-    :param point_cloud: Open3D PointCloud object
-    :param radius: Radius for normal estimation
-    :param max_nn: Maximum number of neighbors for normal estimation
-    """
-
-    point_cloud.estimate_normals(
-        search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=max_nn)
-    )
-    point_cloud.orient_normals_consistent_tangent_plane(k=30)  # Optional for consistency
-    return point_cloud
 
 
 class ProcessPointClouds:
@@ -38,7 +29,7 @@ class ProcessPointClouds:
     A class to process and store point clouds. Gets raw point cloud data from
     the database, converts it from pixels to meters and stores it in a global map.
     """
-    def __init__(self):
+    def __init__(self, result_queue: Queue, stop_event: multiprocessing.Event, reset_event: multiprocessing.Event):
 
         # Camera stuff for pixel to 3D conversion
         self.WIDTH = 256
@@ -62,51 +53,75 @@ class ProcessPointClouds:
         self.cur_scan_id = 0
 
         self.point_cloud_map = o3d.geometry.PointCloud()
-        self.point_clouds_in_map = []
+        self.point_clouds_in_map = 0
         metadata = MetaData()
         self.processed_point_table = Table('point_cloud', metadata, autoload_with=self.engine)
 
         # Continuously fetch new point clouds and process them so when the user requests
         # the latest point cloud map, it's readily available
-        self.processing_thread = threading.Thread(target=self.run)
-        self.process = True
-        self.flag_new_points = True
+        # Multiprocessing setup
+        self.stop_event = stop_event
+        self.result_queue = result_queue
 
-    def get_new_elements(self) -> Optional[o3d.geometry.PointCloud]:
-        """
-        Get the latest point cloud map. If new points are available, return the
-        updated map. If no new points are available, return an empty map.
-        If the database is empty, return None.
+        self.previous_transformation = [np.identity(4)]
 
-        :return: Open3D PointCloud object of global map
-        """
-        if self.flag_new_points:
-            self.flag_new_points = False
-            return self.point_cloud_map.__copy__()#.voxel_down_sample(0.1)
-        elif len(self.point_clouds_in_map) == 0:
-            return None
-        return o3d.geometry.PointCloud()
+        self.start_time = None
+        self.reset_event = reset_event
+
 
     def run(self) -> None:
         """
         Continuously fetch new point clouds from the database and process them.
         """
-        while self.process:
+        past_20_ave_time = deque(maxlen=20)
+        no_new_data = None
+
+        while not self.stop_event.is_set():
+            self.start_time = time.time()
             new_pointcloud = self.get_next_pointcloud()
-            if new_pointcloud is None or len(new_pointcloud.points) == 0:
-                time.sleep(1)
+            end_time = time.time()
+            past_20_ave_time.append(end_time - self.start_time)
+
+            if new_pointcloud is None:
                 continue
-            self.flag_new_points = True
-            # if len(self.point_clouds_in_map) % 5 == 0:
-                # result_fgr = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
-                #     source, target, source_feature, target_feature,
-                #     o3d.pipelines.registration.FastGlobalRegistrationOption(
-                #         maximum_correspondence_distance=0.05
-                #     )
-                # )
+            if len(new_pointcloud.points) == 0:
+                self.result_queue.put(np.asarray(o3d.geometry.PointCloud().points))
+                time.sleep(1)
+                if no_new_data is None:
+                    file_name = "app.ply"
+                    print("writing to point cloud to file: {}".format(file_name))
+                    o3d.io.write_point_cloud(file_name, self.point_cloud_map)
+                    no_new_data = True
+            else:
+                print(f"average time: {sum(past_20_ave_time) / len(past_20_ave_time)}")
 
-            # pd.DataFrame(new_pointcloud.points, columns=['x','y','z']).to_sql('global_map', self.engine, if_exists='append', index=False)
+                # Serialize the current map and send it to the queue
+                self.result_queue.put(np.asarray(self.point_cloud_map.points))
+                no_new_data = None
 
+            if self.point_clouds_in_map % 10 == 0 or no_new_data:
+                self.point_cloud_map: o3d.geometry.PointCloud = self.point_cloud_map.voxel_down_sample(0.001)
+
+                if self.point_clouds_in_map % 40 == 0 or no_new_data:
+                    self.point_cloud_map, _ = self.point_cloud_map.remove_statistical_outlier(nb_neighbors=60, std_ratio=2)
+                    no_new_data = False
+                    continue
+
+                self.point_cloud_map, _ = self.point_cloud_map.remove_statistical_outlier(nb_neighbors=30, std_ratio=3.5)
+        print("Stopping point cloud processing thread")
+
+    def reset(self) -> None:
+        """
+        When the user clears the database, reset the global map and point cloud list.
+        """
+        # Save the current point cloud map to a file
+        self.point_clouds_in_map = 0
+        self.cur_scan_id = 0
+        self.point_cloud_map.clear()
+        self.previous_transformation = [np.identity(4)]
+        self.reset_event.set()
+        while not self.result_queue.empty():
+            pass
 
 
     def get_next_pointcloud(self) -> Optional[o3d.geometry.PointCloud]:
@@ -115,31 +130,23 @@ class ProcessPointClouds:
 
         :return: The global map with the new point cloud added if possible
         """
-        # Fetch the latest scan_id
-        query_max_id = "SELECT MAX(scan_id) FROM point_cloud;"
-        max_id_df = pd.read_sql_query(query_max_id, self.engine)
-        max_scan_id = max_id_df.iloc[0, 0]
+        with self.engine.connect() as connection:
+            query = text("""
+                         SELECT EXISTS (SELECT 1 FROM point_cloud);
+                         """)
+            result = connection.execute(query)
+            count = result.scalar()  # Fetch the single scalar value
+            if count == 0:
+                self.reset()
+                return None
+            query = text("""
+                SELECT x, y, z
+                FROM point_cloud
+                WHERE scan_id = :scan_id
+            """)
+            result = connection.execute(query, {"scan_id": self.cur_scan_id + 1})
 
-        # Check if there's any new data
-        if max_scan_id is None:
-            # database was empty
-            self.point_clouds_in_map = []
-            self.cur_scan_id = 0
-            self.point_cloud_map.clear()
-            return None
-        elif max_scan_id == self.cur_scan_id:
-            # No new data
-            return o3d.geometry.PointCloud()
-
-        print(f"Fetching point cloud data for scan_id: {self.cur_scan_id + 1}")
-        self.cur_scan_id += 1
-
-        # Fetch the point cloud data for the maximum scan_id
-        query_points = f"SELECT x, y, z FROM point_cloud WHERE scan_id = {self.cur_scan_id};"
-        points_df = pd.read_sql_query(query_points, self.engine)
-
-        # Convert to NumPy array for Open3D
-        points = points_df[['x', 'y', 'z']].values
+        points = result.fetchall()
         if len(points) == 0:
             return o3d.geometry.PointCloud()
         points_3d = np.zeros((len(points), 3))
@@ -147,6 +154,9 @@ class ProcessPointClouds:
         # Convert pixel coordinates to 3D coordinates
         for i in range(0, len(points), 3):
             points_3d[i] = self.project_pixel_to_3d(points[i][0], points[i][1], points[i][2])
+        print(f"Fetching point cloud data for scan_id: {self.cur_scan_id + 1}")
+        self.cur_scan_id += 1
+
         # align the point cloud with the global map
         return self.locate_pc_in_world(points_3d)
 
@@ -178,32 +188,28 @@ class ProcessPointClouds:
         # Do some basic point cloud processing, dont know if this is necessary
         point_cloud = o3d.geometry.PointCloud()
         point_cloud.points = o3d.utility.Vector3dVector(points)
-        point_cloud.remove_duplicated_points()
-        point_cloud.remove_statistical_outlier(nb_neighbors=10, std_ratio=1.0)
-        point_cloud.remove_non_finite_points()
-        point_cloud.remove_radius_outlier(nb_points=10, radius=0.02)
-        random_color = (random.random(), random.random(), random.random())
-        point_cloud.paint_uniform_color(random_color)
+        # Can this be done quickly?
+        # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
 
         # If this is the first point cloud, set it as the global map
-        if len(self.point_clouds_in_map) == 0:
-            self.point_clouds_in_map.append(point_cloud.__copy__())
+        if self.point_clouds_in_map == 0:
+            self.point_clouds_in_map += 1
             self.point_cloud_map = point_cloud
             return point_cloud
 
         # Perform ICP alignment
-        icp_result_transformation = self.align_point_clouds_with_ransac_icp(point_cloud, self.point_cloud_map)
+        icp_result_transformation = self.align_point_clouds_with_icp(point_cloud, self.point_cloud_map)
         if icp_result_transformation is None:
-            return self.point_cloud_map.__copy__()#.voxel_down_sample(0.1)
+            return self.point_cloud_map#.voxel_down_sample(0.1)
 
         point_cloud = point_cloud.transform(icp_result_transformation)
-        self.point_clouds_in_map.append(point_cloud)
+        self.point_clouds_in_map += 1
         self.point_cloud_map += point_cloud
-        # self.point_cloud_map = self.point_cloud_map.voxel_down_sample(0.01)
+
         return point_cloud
 
 
-    def align_point_clouds_with_ransac_icp(self, source_cloud, target_cloud, voxel_size=0.02) -> np.ndarray:
+    def align_point_clouds_with_icp(self, source_cloud, target_cloud, voxel_size=0.02) -> np.ndarray:
         """
         Align two point clouds using RANSAC and then ICP.
 
@@ -213,46 +219,24 @@ class ProcessPointClouds:
 
         :return: The 4x4 transformation matrix to align the new point cloud with the global map
         """
+        # print("time to get to align_point_clouds_with_icp: ", time.time() - self.start_time)
         # Downsample the clouds
-        source_down = source_cloud.__copy__().voxel_down_sample(voxel_size)
-        target_down = target_cloud.__copy__().voxel_down_sample(voxel_size)
+        source_down = source_cloud.voxel_down_sample(voxel_size)
+        target_down = target_cloud.voxel_down_sample(voxel_size)
 
-        # Estimate normals
-        source_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2, max_nn=30))
-        target_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2, max_nn=30))
-        source_down.orient_normals_consistent_tangent_plane(k=30)  # Optional for consistency
-        target_down.orient_normals_consistent_tangent_plane(k=30)  # Optional for consistency
+        # # # Estimate normals
+        source_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2, max_nn=20))
+        target_down.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2, max_nn=20))
+        # source_down.estimate_normals(o3d.geometry.KDTreeSearchParamRadius(radius=voxel_size * 1.5))
+        # target_down.estimate_normals(o3d.geometry.KDTreeSearchParamRadius(radius=voxel_size * 1.5))
 
-        # Compute FPFH features
-        source_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-            source_down,
-            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 4, max_nn=100)
-        )
-        target_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-            target_down,
-            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 4, max_nn=100)
-        )
-
-        # RANSAC for initial alignment
-        distance_threshold = .3#voxel_size * 1.5
-        result_ransac = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-            source_down, target_down, source_fpfh, target_fpfh, False,
-            distance_threshold,
-            o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
-            3,  # RANSAC iterations
-            [
-                o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
-                o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(distance_threshold),
-            ],
-            o3d.pipelines.registration.RANSACConvergenceCriteria(max_iteration=400000, confidence=0.999)
-        )
-
-        # Refine with ICP
+        # print("time to get to registration_icp: ", time.time() - self.start_time)
+        # Align with ICP
         result_icp = o3d.pipelines.registration.registration_icp(
             source_down, target_down,
-            max_correspondence_distance=.1,
-            init=result_ransac.transformation,
-            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            max_correspondence_distance=voxel_size * 2.5,
+            init=self.previous_transformation[-1],
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
             criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
                 max_iteration=500,  # Increase the number of iterations
                 relative_fitness=1e-6,  # Convergence threshold for fitness
@@ -263,5 +247,77 @@ class ProcessPointClouds:
         # print("ICP Refined Transformation:")
         # print(result_icp.transformation)
         # print(f"Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}")
-
+        self.previous_transformation.append(result_icp.transformation)
         return result_icp.transformation
+
+
+class ProcessPointCloudsThread:
+    """
+    Class to abstract multiprocessing for point cloud processing.
+    """
+    def __init__(self):
+        self.result_queue = multiprocessing.Queue()
+        self.stop_event = multiprocessing.Event()
+        self.reset_event = multiprocessing.Event()
+
+        self.processor = multiprocessing.Process(target=self.start_processing)
+
+    def start_processing(self) -> None:
+            """
+            Start the point cloud processing thread. Should be run in a separate process.
+            """
+            processor = ProcessPointClouds(self.result_queue, self.stop_event, self.reset_event)
+            try:
+                processor.run()
+            except KeyboardInterrupt:
+                print("Stopped by user")
+
+
+    def start(self) -> None:
+        """
+        Start the point cloud processing thread.
+        """
+        self.processor.start()
+
+    def stop(self) -> None:
+        """
+        Stop the point cloud processing thread.
+        """
+        self.stop_event.set()
+        self.processor.join(timeout=5)  # Wait for the process to finish
+        if self.processor.is_alive():
+            self.processor.terminate()  # Force terminate if it doesn't stop
+            self.processor.join()
+
+
+    def get_latest_map(self) -> Optional[o3d.geometry.PointCloud]:
+        """
+        Get the latest point cloud map from the processing thread. If the queue
+        is empty, return an empty point cloud indicating no new data. If the
+        latest point cloud is None, the database was cleared and the visualizer
+        should reset.
+
+        :return: The latest point cloud map, an empty point cloud if no new
+            data, or None if the database was cleared
+        """
+        # print("getting latest map")
+        if self.reset_event.is_set():
+            self.reset_event.clear()
+            while not self.result_queue.empty():
+                self.result_queue.get(block=False)
+            return None
+        if self.result_queue.empty():
+            return o3d.geometry.PointCloud()
+        points = self.result_queue.get()
+
+        if points is None:
+            return None
+        point_cloud = o3d.geometry.PointCloud()
+
+        point_cloud.points = o3d.utility.Vector3dVector(points)
+        return point_cloud
+
+
+
+if __name__ == "__main__":
+    raise NotImplementedError("This script is not meant to be run directly.")
