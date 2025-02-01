@@ -59,8 +59,6 @@ def upload_point_cloud() -> Tuple[str, int]:
         # Fetch the latest scan_id, the scan id is how we know
         cursor.execute("SELECT nextval('scan_id_seq')")
         new_scan_id = cursor.fetchone()
-        print(new_scan_id)
-
 
         # Format the data for bulk insertion
         tuples = [(new_scan_id, point['x'], point['y'], point['z']) for point in data]
@@ -81,5 +79,5 @@ def upload_point_cloud() -> Tuple[str, int]:
             connection.close()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="127.0.0.1", port=8080)
 

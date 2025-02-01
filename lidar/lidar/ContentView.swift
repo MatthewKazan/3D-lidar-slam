@@ -42,7 +42,7 @@ struct ContentView: View {
     
     // Function to send POST request
     private func sendPostRequest() {
-        guard let url = URL(string: "http://10.0.0.169:8080/clear_db") else {
+        guard let url = URL(string: "http://10.0.0.199:9090/clear_db") else {
             print("Invalid URL")
             return
         }

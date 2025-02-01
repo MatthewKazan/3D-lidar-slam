@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		2271F2752D4D7ADE00EB9227 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = 2271F2742D4D7ADE00EB9227 /* Starscream */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		228EFFF42CD19D2000703F6D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2271F2752D4D7ADE00EB9227 /* Starscream in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,12 +77,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2271F2732D4D7ADE00EB9227 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		228EFFDA2CD19D1F00703F6D = {
 			isa = PBXGroup;
 			children = (
 				228EFFE52CD19D1F00703F6D /* lidar */,
 				228EFFF62CD19D2000703F6D /* lidarTests */,
 				228E00002CD19D2000703F6D /* lidarUITests */,
+				2271F2732D4D7ADE00EB9227 /* Frameworks */,
 				228EFFE42CD19D1F00703F6D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -112,6 +125,7 @@
 			);
 			name = lidar;
 			packageProductDependencies = (
+				2271F2742D4D7ADE00EB9227 /* Starscream */,
 			);
 			productName = lidar;
 			productReference = 228EFFE32CD19D1F00703F6D /* lidar.app */;
@@ -195,6 +209,9 @@
 			);
 			mainGroup = 228EFFDA2CD19D1F00703F6D;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2271F2722D4D77FC00EB9227 /* XCRemoteSwiftPackageReference "Starscream" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 228EFFE42CD19D1F00703F6D /* Products */;
 			projectDirPath = "";
@@ -562,6 +579,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		2271F2722D4D77FC00EB9227 /* XCRemoteSwiftPackageReference "Starscream" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/daltoniam/Starscream.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.0.8;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		2271F2742D4D7ADE00EB9227 /* Starscream */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2271F2722D4D77FC00EB9227 /* XCRemoteSwiftPackageReference "Starscream" */;
+			productName = Starscream;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 228EFFDB2CD19D1F00703F6D /* Project object */;
 }

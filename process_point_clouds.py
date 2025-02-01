@@ -331,5 +331,56 @@ class ProcessPointCloudsThread:
         return point_cloud
 
 
+
+class ProcessPointClouds2:
+    """
+    A class to process and store point clouds. Gets raw point cloud data from
+    the database, converts it from pixels to meters and stores it in a global map.
+    """
+
+    def __init__(self, result_queue: Queue, stop_event: multiprocessing.Event,
+        reset_event: multiprocessing.Event):
+        """
+        Initialize the point cloud processor. Should be run in a separate process
+        since its a long-running task and slow.
+
+        :param result_queue: thread safe queue to store the latest point cloud map
+        :param stop_event: thread safe event to stop this object from running
+        :param reset_event: thread safe event triggered on database reset
+        """
+
+        # Camera stuff for pixel to 3D conversion
+        self.WIDTH = 256
+        self.HEIGHT = 192
+        self.ref_width = 1920
+        self.ref_height = 1440
+        self.fx = 1342.9849
+        self.fy = 1342.9849
+        self.cx = 965.6142
+        self.cy = 717.95435
+        scale_x = self.WIDTH / self.ref_width
+        scale_y = self.HEIGHT / self.ref_height
+        self.fx = self.fx * scale_x
+        self.fy = self.fy * scale_y
+        self.cx = self.cx * scale_x
+        self.cy = self.cy * scale_y
+
+        # Create SQLAlchemy engine
+        self.cur_scan_id = 0
+
+        self.point_cloud_map = o3d.geometry.PointCloud()
+        self.point_clouds_in_map = 0
+
+        # Continuously fetch new point clouds and process them so when the user requests
+        # the latest point cloud map, it's readily available
+        # Multiprocessing setup
+        self.stop_event = stop_event
+        self.result_queue = result_queue
+
+        self.previous_transformation = [np.identity(4)]
+
+        self.start_time = None
+        self.reset_event = reset_event
+
 if __name__ == "__main__":
     raise NotImplementedError("This script is not meant to be run directly.")

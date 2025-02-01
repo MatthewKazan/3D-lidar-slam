@@ -21,3 +21,27 @@ each scan to the servers local ip address. It sends a scan every .1 seconds.
 
 ## Writeup
 The writeup for this project is in misc/out/conference_101719.pdf
+
+# ROS2 setup
+
+Install ros2 following the instructions at https://robostack.github.io/GettingStarted.html
+install the following packages to ros_env
+```bash
+mamba install ros-humble-rosbridge-suite
+```
+
+ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+if you want to use rviz
+```
+ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map camera_link
+ros2 run rviz2 rviz2
+```
+
+Run ros receiver
+```bash
+    colcon build --symlink-install
+    source install/setup.<bash or zsh>
+    ros2 run slam advertiser 
+    ros2 run slam listener 
+```
+
