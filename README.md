@@ -30,18 +30,18 @@ install the following packages to ros_env
 mamba install ros-humble-rosbridge-suite
 ```
 
-ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+### To Run Application 
+```bash
+    colcon build --symlink-install
+    source install/setup.<bash or zsh>
+    ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+    ros2 run slam advertiser 
+    ros2 run slam listener 
+```
 if you want to use rviz
 ```
 ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map camera_link
 ros2 run rviz2 rviz2
 ```
 
-Run ros receiver
-```bash
-    colcon build --symlink-install
-    source install/setup.<bash or zsh>
-    ros2 run slam advertiser 
-    ros2 run slam listener 
-```
 

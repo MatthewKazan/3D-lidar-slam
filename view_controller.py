@@ -38,7 +38,7 @@ class ViewController:
 
         """
         ctr = self.vis.get_view_control()
-        param = o3d.io.read_pinhole_camera_parameters(os.path.join(os.path.curdir, 'viewpoint.json'))
+        param = o3d.io.read_pinhole_camera_parameters(os.path.join(os.path.curdir, 'configs/viewpoint.json'))
         ctr.set_constant_z_far(10000)  # Set far clipping plane (increase as needed)
         ctr.set_constant_z_near(0.1)
         ctr.convert_from_pinhole_camera_parameters(param, allow_arbitrary=True)

@@ -1,0 +1,9 @@
+camera:
+  width: 256
+  height: 192
+  ref_width: 1920
+  ref_height: 1440
+  fx: 1342.9849
+  fy: 1342.9849
+  cx: 965.6142
+  cy: 717.95435

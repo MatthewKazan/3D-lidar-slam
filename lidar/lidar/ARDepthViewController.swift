@@ -21,6 +21,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
     var isScanning = false // Track the scanning state
     var scanningTimer: Timer?
     var socket: WebSocket!
+    var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
 
 
     override func viewDidLoad() {
@@ -36,7 +37,8 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
         configuration.frameSemantics = .sceneDepth
         arView.session.run(configuration)
         
-        var request = URLRequest(url: URL(string: "http://10.0.0.199:9090")!) //https://localhost:8080
+        if (selectedIP == "") { return }
+        var request = URLRequest(url: URL(string: "http://\(selectedIP):9090")!) //https://localhost:8080
         request.timeoutInterval = 5
         socket = WebSocket(request: request)
         socket.connect() // Make sure this is the correct WebSocket URL
@@ -97,7 +99,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
         for y in 0..<height {
             for x in 0..<width {
                 let depth = depthPointer[y * width + x]
-                if depth > 0 {
+                if depth > 0 && Bool.random() {
                     var xVal = Float(x)
                     var yVal = Float(y)
                     var zVal = depth
@@ -143,11 +145,29 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
             "is_dense": true
         ]
 
+        self.publishToTopic(msg: pointCloudMessage, topic: "/input_pointcloud")
+    }
+    
+    func setIPAddress(ip: String) {
+        if (ip == selectedIP) { return }
+        
+        selectedIP = ip
+        var request = URLRequest(url: URL(string: "http://\(selectedIP):9090")!)
+        request.timeoutInterval = 5
+        socket = WebSocket(request: request)
+        socket.connect()
+    }
+    
+    func sendResetRequest() {
+        publishToTopic(msg: ["data":""], topic: "/reset")
+    }
+    
+    func publishToTopic(msg: Any, topic: String) {
         // Wrap in a rosbridge-style JSON message
         let jsonMessage: [String: Any] = [
             "op": "publish",
-            "topic": "/input_pointcloud",
-            "msg": pointCloudMessage
+            "topic": topic,
+            "msg": msg
         ]
 
         // Serialize to JSON and send over the websocket
@@ -156,9 +176,8 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
             if let jsonString = String(data: jsonData, encoding: .utf8) {
                 socket?.write(string: jsonString)
             }
-            print(timeInterval)
         } catch {
-            print("Failed to encode point cloud JSON: \(error)")
+            print("Failed to publish to topic \(error)")
         }
     }
     

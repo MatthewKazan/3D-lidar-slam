@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
+from std_msgs.msg import String
 
 
 
@@ -11,6 +12,8 @@ class PointCloudPublisher(Node):
         # Advertise the topic 'pointcloud_topic' with the String message type
         self.publisher_ = self.create_publisher(PointCloud2, '/input_pointcloud', 10)
         self.get_logger().info('PointCloud publisher node has been started')
+        self.publisher_ = self.create_publisher(String, '/reset', 10)
+        self.get_logger().info('reset node has been started')
 
     #     # self.publish_message("Sample point cloud data")
     #

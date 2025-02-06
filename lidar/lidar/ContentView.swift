@@ -2,72 +2,107 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var isScanning = false
+    @State private var isShowingMenu = false
+    @State private var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
     let arViewContainer = ARViewContainer()
-
+    
     var body: some View {
         ZStack {
             arViewContainer
                 .edgesIgnoringSafeArea(.all)
             
             VStack {
+                HStack {
+                    Button(action: {
+                        isShowingMenu.toggle()
+                    }) {
+                        Text("Set IP")
+                            .padding()
+                            .background(Color.gray.opacity(0.8))
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    .padding()
+                    Spacer()
+                }
                 Spacer()
                 
-                // Button to toggle scanning
-                Button(action: {
-                    isScanning.toggle()
-                    arViewContainer.toggleScanning()
-                }) {
-                    Text(isScanning ? "Stop Scanning" : "Start Scanning")
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
+                if !isShowingMenu {
+                    Button(action: {
+                        isScanning.toggle()
+                        arViewContainer.updateIPAddress(selectedIP)
+                        arViewContainer.toggleScanning()
+                    }) {
+                        Text(isScanning ? "Stop Scanning" : "Start Scanning")
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    .padding()
+                    
+                    Button(action: {
+                        arViewContainer.sendResetRequest()
+                    }) {
+                        Text("Clear DB")
+                            .padding()
+                            .background(Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                    }
+                    .padding()
                 }
-                .padding()
-                
-                // Button to send POST request
-                Button(action: {
-                    sendPostRequest()
-                }) {
-                    Text("Clear DB")
-                        .padding()
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
-                .padding()
+            }
+            
+            if isShowingMenu {
+                SideMenu(isShowing: $isShowingMenu, selectedIP: $selectedIP)
             }
         }
     }
+}
+
+struct SideMenu: View {
+    @Binding var isShowing: Bool
+    @Binding var selectedIP: String
     
-    // Function to send POST request
-    private func sendPostRequest() {
-        guard let url = URL(string: "http://10.0.0.199:9090/clear_db") else {
-            print("Invalid URL")
-            return
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .edgesIgnoringSafeArea(.all)
+                .onTapGesture {
+                    isShowing = false
+                }
+            
+            VStack {
+                Text("Enter IP Address")
+                    .font(.headline)
+                    .padding()
+                
+                TextField("IP Address", text: $selectedIP)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding()
+                    .keyboardType(.decimalPad)
+                    .frame(width: 300)
+                
+                Button("Save") {
+                    UserDefaults.standard.set(selectedIP, forKey: "SavedIP")
+                    isShowing = false
+                }
+                .padding()
+                .background(Color.blue)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+                
+                Button("Close") {
+                    isShowing = false
+                }
+                .padding()
+            }
+            .frame(width: 350, height: 300)
+            .background(Color.white)
+            .cornerRadius(10)
+            .shadow(radius: 10)
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        // Example JSON body
-        let body: [String: Any] = ["message": "Hello from SwiftUI"]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        // Perform network request
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("Error: \(error.localizedDescription)")
-                return
-            }
-
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                print("POST request succeeded")
-            } else {
-                print("POST request failed")
-            }
-        }.resume()
     }
 }
 
@@ -79,9 +114,17 @@ struct ARViewContainer: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: ARDepthViewController, context: Context) {}
-
+    
     func toggleScanning() {
         viewController.toggleScanning()
+    }
+    
+    func updateIPAddress(_ ip: String) {
+        viewController.setIPAddress(ip: ip)
+    }
+    
+    func sendResetRequest() {
+        viewController.sendResetRequest()
     }
 }
 
