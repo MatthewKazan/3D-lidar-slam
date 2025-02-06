@@ -16,8 +16,8 @@ coordinates of the depth map. The z column is the depth in meters. There is also
 scan_id_seq which is used to generate the next scan_id.
 
 ## The iPhone app
-The iPhone app is written in Swift and uses the ARKit library to capture pointclouds. The app uploads
-each scan to the servers local ip address. It sends a scan every .1 seconds.
+The iPhone app is in the lidar directory, its written in Swift and uses the ARKit library to capture pointclouds. The app uploads
+each scan to the servers local ip address. It sends a scan every .1 seconds. 
 
 ## Writeup
 The writeup for this project is in misc/out/conference_101719.pdf
