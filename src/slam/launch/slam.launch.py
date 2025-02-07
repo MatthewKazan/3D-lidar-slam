@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch import logging
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -28,15 +29,18 @@ def launch_setup(context, *args, **kwargs):
             parameters=[{"algorithm": LaunchConfiguration('algorithm'), "config": LaunchConfiguration('config')}],
 
         ),
-    ]
-
-    # Include rosbridge_server launch file
-    rosbridge_launch_file = os.path.join(get_package_share_directory('rosbridge_server'), 'launch', 'rosbridge_websocket_launch.xml')
-    launch_nodes.append(
-        IncludeLaunchDescription(
-            AnyLaunchDescriptionSource(rosbridge_launch_file)
+        Node(
+            package='rosbridge_server',
+            executable='rosbridge_websocket',
+            name='rosbridge_websocket',
+            output='screen',
+            parameters=[{
+                'port': 9090,  # Ensure the correct port is set
+                'use_compression': True,
+                # Enable compression for better performance
+            }],
         )
-    )
+    ]
 
     # Check if RViz should be launched
     launch_rviz = context.launch_configurations.get('launch_rviz', 'false').lower() == 'true'
@@ -46,7 +50,7 @@ def launch_setup(context, *args, **kwargs):
                 package='rviz2',
                 executable='rviz2',
                 name='rviz2',
-                output='screen'
+                output='screen',
             )
         )
 

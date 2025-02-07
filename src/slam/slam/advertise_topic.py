@@ -34,7 +34,7 @@ def main(args=None):
     # Keep the publisher running
     # rclpy.spin_once()
     # rclpy.spin(topic_advertiser)
-    topic_advertiser.destroy_node()
+    # topic_advertiser.destroy_node()
     rclpy.shutdown()
 
 

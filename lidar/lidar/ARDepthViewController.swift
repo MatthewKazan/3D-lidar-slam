@@ -15,19 +15,23 @@ struct Point: Codable {
     let z: Float
 }
 
-class ARDepthViewController: UIViewController, ARSessionDelegate {
+import UIKit
+import ARKit
+import Starscream  // ✅ Ensure Starscream is imported for WebSocket
+
+class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDelegate {
     var arView: ARSCNView!
     var capturedPointCloud: [SIMD3<Float>] = []
-    var isScanning = false // Track the scanning state
+    var isScanning = false
     var scanningTimer: Timer?
-    var socket: WebSocket!
+    var socket: WebSocket?
+    var isConnected = false  // ✅ Track WebSocket connection status
     var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
-
 
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        // Initialize the ARSCNView
+        // Initialize AR View
         arView = ARSCNView(frame: self.view.bounds)
         self.view.addSubview(arView)
         arView.session.delegate = self
@@ -37,50 +41,47 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
         configuration.frameSemantics = .sceneDepth
         arView.session.run(configuration)
         
-        if (selectedIP == "") { return }
-        var request = URLRequest(url: URL(string: "http://\(selectedIP):9090")!) //https://localhost:8080
-        request.timeoutInterval = 5
-        socket = WebSocket(request: request)
-        socket.connect() // Make sure this is the correct WebSocket URL
-        
+        if selectedIP.isEmpty { return }
+        self.setIPAddress(ip: selectedIP)
     }
 
+    // ✅ Start scanning and connect WebSocket only if not already connected
     func startScanning() {
+        if isScanning { return }
         isScanning = true
-        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.30, repeats: true) { _ in
+        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.20, repeats: true) { _ in
             self.capturePointCloud()
+        }
+        
+        if socket == nil || !isConnected {
+            print("Connecting WebSocket for scanning...")
+            socket?.connect()
         }
     }
 
+    // ✅ Stop scanning and disconnect WebSocket safely
     func stopScanning() {
+        if !isScanning { return }
         isScanning = false
         scanningTimer?.invalidate()
         scanningTimer = nil
+
+        if isConnected {
+            print("Disconnecting WebSocket after scanning...")
+            socket?.disconnect()
+        }
     }
 
+    // ✅ Toggle scanning state
     func toggleScanning() {
-        if isScanning {
-            print("stop scanning")
-            stopScanning()
-        } else {
-            print("start scanning")
-            startScanning()
-        }
+        isScanning ? stopScanning() : startScanning()
     }
 
     func capturePointCloud() {
-        if isScanning == false {
-            return
-        }
-        guard let frame = arView.session.currentFrame,
-              let depthData = frame.sceneDepth?.depthMap else {
+        guard isScanning, let frame = arView.session.currentFrame, let depthData = frame.sceneDepth?.depthMap else {
             print("Depth data is unavailable.")
             return
         }
-//        let pointCloud = savePointCloud(from: depthData, cameraIntrinsics: frame.camera.intrinsics, resolution: frame.camera.imageResolution)
-////        print(frame.camera.intrinsics)
-////        printDepthData(depthData)
-//        uploadCSV()
         uploadPointCloud(from: depthData)
     }
     
@@ -95,7 +96,6 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
         var pointData = Data()
         var validPointsCount = 0
 
-        // Pack each valid point (x, y, depth) as 32-bit floats in little-endian order
         for y in 0..<height {
             for x in 0..<width {
                 let depth = depthPointer[y * width + x]
@@ -103,7 +103,6 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
                     var xVal = Float(x)
                     var yVal = Float(y)
                     var zVal = depth
-                    // Append x, y, and z as binary data
                     withUnsafeBytes(of: &xVal) { pointData.append(contentsOf: $0) }
                     withUnsafeBytes(of: &yVal) { pointData.append(contentsOf: $0) }
                     withUnsafeBytes(of: &zVal) { pointData.append(contentsOf: $0) }
@@ -112,34 +111,28 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
             }
         }
 
-        // Base64-encode the binary data for the JSON message
         let base64EncodedData = pointData.base64EncodedString()
-
-        // Prepare a header with a timestamp and a frame id (adjust frame_id as needed)
         let currentTime = Date().addingTimeInterval(0.1)
         let timeInterval = currentTime.timeIntervalSince1970
         let secs = Int32(timeInterval)
         let nsecs = Int32((timeInterval - Double(secs)) * 1_000_000_000)
+
         let header: [String: Any] = [
-            "stamp": [
-                "secs": secs,
-                "nsecs": nsecs
-            ],
-            "frame_id": "camera_link"  // adjust as appropriate
+            "stamp": ["secs": secs, "nsecs": nsecs],
+            "frame_id": "camera_link"
         ]
 
-        // Build the sensor_msgs/PointCloud2 message payload
         let pointCloudMessage: [String: Any] = [
             "header": header,
-            "height": 1,                   // unorganized point cloud
-            "width": validPointsCount,     // number of valid points
+            "height": 1,
+            "width": validPointsCount,
             "fields": [
                 ["name": "x", "offset": 0, "datatype": 7, "count": 1],
                 ["name": "y", "offset": 4, "datatype": 7, "count": 1],
                 ["name": "z", "offset": 8, "datatype": 7, "count": 1]
             ],
             "is_bigendian": false,
-            "point_step": 12,              // 3 floats * 4 bytes each
+            "point_step": 12,
             "row_step": 12 * validPointsCount,
             "data": base64EncodedData,
             "is_dense": true
@@ -148,19 +141,63 @@ class ARDepthViewController: UIViewController, ARSessionDelegate {
         self.publishToTopic(msg: pointCloudMessage, topic: "/input_pointcloud")
     }
     
+    // ✅ Handle WebSocket Reconnection and Disconnects
     func setIPAddress(ip: String) {
-        if (ip == selectedIP) { return }
-        
+        print("Setting new IP: \(ip)")
         selectedIP = ip
-        var request = URLRequest(url: URL(string: "http://\(selectedIP):9090")!)
+        socket?.disconnect()  // ✅ Ensure clean disconnect before reconnecting
+        
+        var request = URLRequest(url: URL(string: "ws://\(selectedIP):9090")!)
         request.timeoutInterval = 5
         socket = WebSocket(request: request)
-        socket.connect()
+        socket?.delegate = self  // ✅ Ensure WebSocket delegate is set
+        self.isConnected = false
     }
-    
+
+    // ✅ Reset the WebSocket and send a reset message
     func sendResetRequest() {
-        publishToTopic(msg: ["data":""], topic: "/reset")
+        if isConnected {
+            print("✅ WebSocket is already connected. Sending reset request...")
+            publishToTopic(msg: ["data": ""], topic: "/reset")
+        } else {
+            print("⚠️ WebSocket is not connected. Attempting to connect before sending reset...")
+            
+            // Attempt to connect, then send reset once connected
+            socket?.connect()
+            
+            // Use DispatchQueue to delay sending reset until connection is established
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if self.isConnected {
+                    print("✅ WebSocket connected, now sending reset request...")
+                    self.publishToTopic(msg: ["data": ""], topic: "/reset")
+                } else {
+                    print("❌ WebSocket failed to connect. Reset request not sent.")
+                }
+            }
+        }
+        socket?.disconnect()
     }
+
+    // ✅ WebSocket Delegate Methods
+    func didReceive(event: Starscream.WebSocketEvent, client: any Starscream.WebSocketClient) {
+        switch event {
+        case .connected(_):
+            isConnected = true
+            print("✅ WebSocket Connected to \(selectedIP)")
+
+        case .disconnected(let reason, let code):
+            isConnected = false
+            print("❌ WebSocket Disconnected: \(reason) (Code: \(code))")
+
+        case .error(let error):
+            isConnected = false
+            print("⚠️ WebSocket Error: \(error?.localizedDescription ?? "Unknown error")")
+
+        default:
+            break
+        }
+    }
+
     
     func publishToTopic(msg: Any, topic: String) {
         // Wrap in a rosbridge-style JSON message

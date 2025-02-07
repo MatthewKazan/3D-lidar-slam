@@ -3,7 +3,6 @@ import queue
 import signal
 from pathlib import Path
 
-import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 import sensor_msgs_py.point_cloud2 as pc2
@@ -17,23 +16,24 @@ from typing import Optional
 import numpy as np
 import open3d as o3d
 
+#TODO - clean up code
 
+#TODO - icp working badly, how to add back in voxelization/statistically outlier removal
+#TODO - make sure the weird data persistence problem is solved
+#TODO - how to save global map to ros bag - maybe save each scan too?
+#TODO - add algorithm for sequential icp and global icp
 
 #TODO - decide whether to use rviz or open3d for visualization
-#TODO - actually generate the global point cloud map
-#TODO - implement a way to reset the visualizer
 #TODO - built in ros2 icp?
 #TODO - speed up everything TO SLOWW
+#TODO - run on linux, fix readme
+#TODO - maybe gtsam?
+
+### DEEP LEARNING TO DO LIST:
 #TODO - figure out how to use deep learning for this
-#TODO - make it easier to run everything - to many steps, do we need advertiser?
-#TODO - run on linux, is readme correct?
+#TODO - loop closure detection, feature extraction, etc.
+#TODO - deep learning + icp hybrid approach and pure deep learning slam algorithm
 
-
-#TODO - why isn't rviz working on the first try? have to rerun it seperately
-#TODO - icp working badly, how to add back in voxelization/statistically outlier removal
-#TODO - how to reset global_map topic while looking at it in rviz
-#TODO - why do i keep getting errors and warnings when i kill the program
-#TODO - how to save global map to ros bag - maybe save each scan too?
 
 
 
@@ -59,10 +59,6 @@ class PointClouds2Subscriber(Node):
         )
 
         self.get_logger().info('PointCloud processor has been started.')
-
-        # ROS 2 Publisher
-        self.publisher_ = self.create_publisher(PointCloud2,
-                                                '/output_pointcloud', 10)
 
         # Thread-Safe Queue for Processing
         self.input_queue = input_queue
@@ -104,16 +100,16 @@ class PointClouds2Subscriber(Node):
     #     self.get_logger().info(f"Received signal {signum}, shutting down...")
     #     self.destroy_node()
 
-    def destroy_node(self):
-        """
-        Cleanup function when the node is shut down.
-        """
-        self.get_logger().info("Shutting down point cloud subscriber...")
-
-        # Signal the processing loop to stop
-        self.stop_event.set()
-
-        super().destroy_node()
+    # def destroy_node(self):
+    #     """
+    #     Cleanup function when the node is shut down.
+    #     """
+    #     self.get_logger().info("Shutting down point cloud subscriber...")
+    #
+    #     # Signal the processing loop to stop
+    #     self.stop_event.set()
+    #
+    #     super().destroy_node()
 
 
 # def main(args=None):

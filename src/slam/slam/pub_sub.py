@@ -1,4 +1,5 @@
 import multiprocessing
+import time
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -45,8 +46,18 @@ class ProcessPointCloudsThread2:
             processor.run()
         except KeyboardInterrupt:
             print("Stopped by user")
+        finally:
+            # publisher_node.get_logger().info("destroying publisher node")
+            publisher_node.destroy_node()
+            executor.shutdown()
+            if rclpy.ok():
+                rclpy.shutdown()
+        # publisher_node.get_logger().info("destroying publisher node")
+        # publisher_node.destroy_node()
+        # executor.shutdown()
+        # if rclpy.ok():
+        #     rclpy.shutdown()
 
-        publisher_node.destroy_node()
 
     def start(self) -> None:
         """
@@ -59,12 +70,16 @@ class ProcessPointCloudsThread2:
         Stop the point cloud processing thread.
         """
         self.stop_event.set()
+        self.processor_thread.join(timeout=3)
+
         if self.processor_thread.is_alive():
             self.processor_thread.terminate()  # Force terminate if it doesn't stop
             self.processor_thread.join()
 
+
+
 def main():
-    multiprocessing.set_start_method("spawn", force=True)  # Fix multiprocessing issues on MacOS
+    # multiprocessing.set_start_method("spawn", force=True)  # Fix multiprocessing issues on MacOS
 
     rclpy.init()
 
@@ -89,21 +104,18 @@ def main():
         reset_event=reset_event
     )
 
-    # Use MultiThreadedExecutor to run subscriber & publisher in parallel
-    executor = MultiThreadedExecutor()
-    executor.add_node(subscriber_node)
-    # executor.add_node(publisher_node)
 
     try:
         processor_thread.start()
-        executor.spin()
+        rclpy.spin(subscriber_node)
     except KeyboardInterrupt:
         pass
     finally:
-        subscriber_node.destroy_node()
+        # subscriber_node.destroy_node()
         # publisher_node.destroy_node()
         processor_thread.stop()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

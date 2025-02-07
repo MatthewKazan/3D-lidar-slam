@@ -128,6 +128,8 @@ class ProcessPointClouds(ABC):
         Main loop to process point clouds.
         """
         while not self.stop_event.is_set():
+            if self.reset_event.is_set():
+                self.reset()
             # Get the latest point cloud from the database
             if self.input_queue.empty():
                 time.sleep(0.1)
@@ -144,7 +146,7 @@ class ProcessPointClouds(ABC):
 
             # Sleep for a short duration to avoid busy-waiting
             time.sleep(0.01)
-
+        self.publisher_node.get_logger().info("shutting down processing loop")
 
     @abstractmethod
     def construct_global_map(self, points: np.array) -> None:
@@ -154,6 +156,17 @@ class ProcessPointClouds(ABC):
         :param points: A numpy array of x,y,z points in meters
         """
         pass
+
+    def reset(self):
+        """
+        Reset the point cloud processor.
+        """
+        self.global_map = None
+        self.point_clouds_in_map = 0
+        self.previous_transformation = [np.identity(4)]
+        self.start_time = None
+        self.publisher_node.publish_point_cloud(np.array([[0,0,0]]))
+        self.reset_event.clear()
 
 
 class ICPProcessor(ProcessPointClouds):
