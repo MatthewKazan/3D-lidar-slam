@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
@@ -22,8 +23,10 @@ def launch_setup(context, *args, **kwargs):
         ),
         Node(
             package='slam',
-            executable='listener',
-            name='slam_listener',
+            executable='pub_sub',
+            name='slam_pub_sub',
+            parameters=[{"algorithm": LaunchConfiguration('algorithm'), "config": LaunchConfiguration('config')}],
+
         ),
     ]
 
@@ -55,6 +58,16 @@ def generate_launch_description():
             'launch_rviz',
             default_value='false',
             description='Set to "true" to launch RViz'
+        ),
+        DeclareLaunchArgument(
+            'algorithm',
+            default_value='icp',
+            description='SLAM algorithm to use (icp or ...)'
+        ),
+        DeclareLaunchArgument(
+            'config',
+            default_value='lidar_config.yaml',
+            description='Configuration file name for the camera that collected the data'
         ),
         OpaqueFunction(function=launch_setup),
     ])

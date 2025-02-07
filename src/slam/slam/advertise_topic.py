@@ -5,9 +5,13 @@ from std_msgs.msg import String
 
 
 
-class PointCloudPublisher(Node):
+class TopicAdvertiser(Node):
+    """
+    This needs to exist to advertise the topics that the ios app will use.
+    The websocket cannot publish to a topic unless it is advertised first
+    """
     def __init__(self):
-        super().__init__('pointcloud_publisher')
+        super().__init__('topic_advertiser')
 
         # Advertise the topic 'pointcloud_topic' with the String message type
         self.publisher_ = self.create_publisher(PointCloud2, '/input_pointcloud', 10)
@@ -26,10 +30,11 @@ class PointCloudPublisher(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    pointcloud_publisher = PointCloudPublisher()
+    topic_advertiser = TopicAdvertiser()
     # Keep the publisher running
-    rclpy.spin(pointcloud_publisher)
-    pointcloud_publisher.destroy_node()
+    # rclpy.spin_once()
+    # rclpy.spin(topic_advertiser)
+    topic_advertiser.destroy_node()
     rclpy.shutdown()
 
 

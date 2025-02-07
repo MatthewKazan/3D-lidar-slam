@@ -21,7 +21,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'listener = slam.point_cloud_subscriber:main',
+            'pub_sub = slam.pub_sub:main',
             'advertiser = slam.advertise_topic:main',
         ],
     },

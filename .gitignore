@@ -1,3 +1,9 @@
 *.DS_Store
 __pycache__/
 *.pyc
+ .idea/
+build/
+install/
+lidar/lidar.xcodeproj/project.xcworkspace/xcshareddata/
+lidar_server
+log/

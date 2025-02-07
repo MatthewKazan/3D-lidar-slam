@@ -1,19 +1,19 @@
-import rclpy
+import os
+import signal
+
 import yaml
-from rclpy.node import Node
-from sensor_msgs.msg import PointCloud2
-import sensor_msgs_py.point_cloud2 as pc2
-from std_msgs.msg import String
+
 import multiprocessing
 import time
 from collections import deque
-from multiprocessing import Queue
+from queue import Queue
 from typing import Optional
 from abc import ABC, abstractmethod
 
 import numpy as np
 import open3d as o3d
-from sqlalchemy import create_engine, text
+
+from slam.point_cloud_publisher import PointCloudPublisher
 
 
 class ProcessPointClouds(ABC):
@@ -24,16 +24,18 @@ class ProcessPointClouds(ABC):
 
     def __init__(self,
         config_path: str,
-        result_queue: Optional[Queue] = None,
-        stop_event: Optional[multiprocessing.Event] = None,
-        reset_event: Optional[multiprocessing.Event] = None):
+        stop_event: multiprocessing.Event,
+        input_queue: Queue,
+        reset_event: multiprocessing.Event,
+        publisher_node: PointCloudPublisher,
+    ):
         """
         Initialize the point cloud processor with settings from a YAML file.
         Should be run in a separate process since it's a long-running task.
 
         :param config_path: Path to the YAML configuration file.
-        :param result_queue: Thread-safe queue to store the latest point cloud map.
-        :param stop_event: Thread-safe event to stop this object from running.
+        :param input_queue: Thread-safe queue to get the latest point cloud map.
+        :param publisher_node: Publisher node to publish the global map after each processed point cloud.
         :param reset_event: Thread-safe event triggered on database reset.
         """
 
@@ -50,18 +52,34 @@ class ProcessPointClouds(ABC):
         # Load YAML Configuration
         self.load_config(config_path)
 
-        self.point_cloud_map = o3d.geometry.PointCloud()
+        self.global_map = None
         self.point_clouds_in_map = 0
 
         self.previous_transformation = [np.identity(4)]
 
         self.start_time = None
+        self.input_queue = input_queue
+        self.stop_event = stop_event
+        self.reset_event = reset_event
+        self.publisher_node = publisher_node
+        self.publisher_node.get_logger().info(f"Using {self.__class__.__name__} for point cloud processing")
 
+        # Start Processing Thread
+        # self.process_thread = multiprocessing.Process(target=self.start_process_thread)
 
-    def load_config(self, config_path: str):
+        # Handle system signals (SIGTERM, SIGINT)
+        # signal.signal(signal.SIGINT, self.signal_handler)
+        # signal.signal(signal.SIGTERM, self.signal_handler)
+        # self.start_process_thread()
+
+    def load_config(self, config_name: str):
         """
         Loads configuration parameters from a YAML file.
         """
+        dir_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "../../../"))
+        config_path = os.path.join(dir_path,
+                                          f'configs/{config_name}')
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
 
@@ -105,28 +123,167 @@ class ProcessPointClouds(ABC):
         return points_3d
 
 
+    def run(self):
+        """
+        Main loop to process point clouds.
+        """
+        while not self.stop_event.is_set():
+            # Get the latest point cloud from the database
+            if self.input_queue.empty():
+                time.sleep(0.1)
+                continue
+            point_cloud_pixel = self.input_queue.get()
+            self.publisher_node.get_logger().info(f"point cloud received from queue")
+
+            # Process the point cloud
+            if point_cloud_pixel is not None:
+                point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
+                self.construct_global_map(point_cloud_3d)
+                self.publisher_node.publish_point_cloud(self.global_map)
+                self.point_clouds_in_map += 1
+
+            # Sleep for a short duration to avoid busy-waiting
+            time.sleep(0.01)
+
+
+    @abstractmethod
+    def construct_global_map(self, points: np.array) -> None:
+        """
+        Construct the global map from the point cloud.
+
+        :param points: A numpy array of x,y,z points in meters
+        """
+        pass
+
+
 class ICPProcessor(ProcessPointClouds):
     """
     A class to process and store point clouds. Gets raw point cloud data from
     the database, converts it from pixels to meters and stores it in a global map.
     """
 
-    def __init__(self):
+    def __init__(self,
+        config_path: str,
+        publisher_node: PointCloudPublisher,
+        input_queue: Queue,
+        reset_event: multiprocessing.Event,
+        stop_event: multiprocessing.Event,
+    ):
         """
-        Initialize the point cloud processor. Should be run in a separate process
-        since its a long-running task and slow.
+        Initialize the point cloud processor with settings from a YAML file.
+        Should be run in a separate process since it's a long-running task.
 
-        :param result_queue: thread safe queue to store the latest point cloud map
-        :param stop_event: thread safe event to stop this object from running
-        :param reset_event: thread safe event triggered on database reset
+        :param config_path: Path to the YAML configuration file.
+        :param input_queue: Thread-safe queue to get the latest point cloud map.
+        :param publisher_node: Publisher node to publish the global map after each processed point cloud.
+        :param reset_event: Thread-safe event triggered on database reset.
+        """
+        super().__init__(
+            config_path=config_path,
+            publisher_node=publisher_node,
+            stop_event=stop_event,
+            input_queue=input_queue,
+            reset_event=reset_event
+        )
+
+    def construct_global_map(self, points: np.array) -> None:
+        """
+        Align the new point cloud with the global map using ICP and add it to the map.
+
+        :param points: The new point cloud to add to the global map
+
+        :return: The new point cloud transformed to align with the global map
         """
 
-        super().__init__()
+        # If this is the first point cloud, set it as the global map
+        if self.point_clouds_in_map == 0:
+            self.point_clouds_in_map += 1
+            self.global_map = points
+            return
+        
+        # Do some basic point cloud processing, dont know if this is necessary
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(points)
+        # Can this be done quickly?
+        # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
+        
+        o3d_global_map = o3d.geometry.PointCloud()
+        o3d_global_map.points = o3d.utility.Vector3dVector(self.global_map)
 
-        self.cur_scan_id = 0
+        # Perform ICP alignment
+        icp_result_transformation = self.align_point_clouds_with_icp(
+            point_cloud, o3d_global_map)
+        if icp_result_transformation is None:
+            return
 
-        self.point_cloud_map = o3d.geometry.PointCloud()
-        self.point_clouds_in_map = 0
+        point_cloud = point_cloud.transform(icp_result_transformation)
+        self.point_clouds_in_map += 1
+        self.global_map = np.asarray((point_cloud + o3d_global_map).points)
 
-        self.previous_transformation = [np.identity(4)]
+    def align_point_clouds_with_icp(self, source_cloud, target_cloud,
+        voxel_size=0.02) -> np.ndarray:
+        """
+        Align two point clouds using RANSAC and then ICP.
 
+        :param source_cloud: The new point cloud to align
+        :param target_cloud: The global map to align the new point cloud with
+        :param voxel_size: The voxel size for downsampling the point clouds
+
+        :return: The 4x4 transformation matrix to align the new point cloud with the global map
+        """
+        # print("time to get to align_point_clouds_with_icp: ", time.time() - self.start_time)
+        # Downsample the clouds
+        source_down = source_cloud.voxel_down_sample(voxel_size)
+        target_down = target_cloud.voxel_down_sample(voxel_size)
+
+        # # # Estimate normals
+        source_down.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2,
+                                                 max_nn=20))
+        target_down.estimate_normals(
+            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2,
+                                                 max_nn=20))
+
+        # print("time to get to registration_icp: ", time.time() - self.start_time)
+        # Align with ICP
+        result_icp = o3d.pipelines.registration.registration_icp(
+            source_down, target_down,
+            max_correspondence_distance=voxel_size * 2.5,
+            init=self.previous_transformation[-1],
+            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
+                max_iteration=500,
+                relative_fitness=1e-6,
+                relative_rmse=1e-6
+            )
+        )
+
+        # print("ICP Refined Transformation:")
+        # print(result_icp.transformation)
+        # print(f"Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}")
+        self.previous_transformation.append(result_icp.transformation)
+        return result_icp.transformation
+
+
+
+def get_processor(
+    algorithm: str,
+    config_path: str,
+    queue: multiprocessing.Queue,
+    reset_event: multiprocessing.Event,
+    stop_event: multiprocessing.Event,
+    publisher_node: PointCloudPublisher,
+) -> ProcessPointClouds:
+    """
+    Factory function to get the appropriate point cloud processor class based on the algorithm.
+    """
+    if algorithm == 'icp':
+        return ICPProcessor(
+            config_path=config_path,
+            publisher_node=publisher_node,
+            stop_event=stop_event,
+            input_queue=queue,
+            reset_event=reset_event
+        )
+    else:
+        raise ValueError(f"Unknown algorithm: {algorithm}")
