@@ -1,4 +1,5 @@
 import multiprocessing
+import threading
 import time
 
 import rclpy
@@ -31,7 +32,7 @@ class ProcessPointCloudsThread2:
         """
         rclpy.init()
         publisher_node = PointCloudPublisher()
-        executor = rclpy.executors.SingleThreadedExecutor()
+        executor = rclpy.executors.MultiThreadedExecutor()
         executor.add_node(publisher_node)
         processor = get_processor(
             algorithm=self.algorithm,
@@ -41,6 +42,8 @@ class ProcessPointCloudsThread2:
             stop_event=self.stop_event,
             reset_event=self.reset_event
         )
+        executor_thread = threading.Thread(target=executor.spin, daemon=True)
+        executor_thread.start()
 
         try:
             processor.run()

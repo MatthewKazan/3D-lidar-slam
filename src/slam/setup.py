@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'pub_sub = slam.pub_sub:main',
             'advertiser = slam.advertise_topic:main',
+            'display_bag = slam.display_bag:main',
         ],
     },
 )

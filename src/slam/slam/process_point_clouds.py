@@ -71,6 +71,16 @@ class ProcessPointClouds(ABC):
         # signal.signal(signal.SIGINT, self.signal_handler)
         # signal.signal(signal.SIGTERM, self.signal_handler)
         # self.start_process_thread()
+    def save_map_callback(self, request, response):
+        if self.global_map is None:
+            response.success = False
+            response.message = "No global map available to save!"
+            self.publisher_node.get_logger().warn(response.message)
+            return response
+        self.publisher_node.save_point_cloud(self.global_map)
+        response.success = True
+        response.message = "Global map saved successfully!"
+        self.publisher_node.get_logger().info(response.message)
 
     def load_config(self, config_name: str):
         """
@@ -133,19 +143,23 @@ class ProcessPointClouds(ABC):
             # Get the latest point cloud from the database
             if self.input_queue.empty():
                 time.sleep(0.1)
+                self.no_new_data = True
                 continue
             point_cloud_pixel = self.input_queue.get()
-            self.publisher_node.get_logger().info(f"point cloud received from queue")
 
+            self.publisher_node.get_logger().info(f"{len(point_cloud_pixel)} points received from queue")
             # Process the point cloud
             if point_cloud_pixel is not None:
+                self.publisher_node.get_logger().info(
+                    f"pcs processed so far: {self.point_clouds_in_map}")
+
                 point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
                 self.construct_global_map(point_cloud_3d)
-                self.publisher_node.publish_point_cloud(self.global_map)
-                self.point_clouds_in_map += 1
 
-            # Sleep for a short duration to avoid busy-waiting
-            time.sleep(0.01)
+                self.publisher_node.publish_point_cloud(self.downsample_global_map())
+                self.point_clouds_in_map += 1
+                self.no_new_data = False
+
         self.publisher_node.get_logger().info("shutting down processing loop")
 
     @abstractmethod
@@ -166,7 +180,17 @@ class ProcessPointClouds(ABC):
         self.previous_transformation = [np.identity(4)]
         self.start_time = None
         self.publisher_node.publish_point_cloud(np.array([[0,0,0]]))
+        self.publisher_node.publish_point_cloud(np.array([[0,0,0]]))
+
         self.reset_event.clear()
+        time.sleep(1)
+        while not self.input_queue.empty():
+            self.input_queue.get(block=False)
+        return None
+
+    @abstractmethod
+    def downsample_global_map(self) -> np.ndarray:
+        pass
 
 
 class ICPProcessor(ProcessPointClouds):
@@ -230,8 +254,8 @@ class ICPProcessor(ProcessPointClouds):
             return
 
         point_cloud = point_cloud.transform(icp_result_transformation)
-        self.point_clouds_in_map += 1
         self.global_map = np.asarray((point_cloud + o3d_global_map).points)
+        self.do_stuff()
 
     def align_point_clouds_with_icp(self, source_cloud, target_cloud,
         voxel_size=0.02) -> np.ndarray:
@@ -277,6 +301,35 @@ class ICPProcessor(ProcessPointClouds):
         self.previous_transformation.append(result_icp.transformation)
         return result_icp.transformation
 
+    def do_stuff(self):
+        # Pulled all of these numbers out of nowhere
+        if self.point_clouds_in_map % 10 == 0:
+            point_cloud_map = o3d.geometry.PointCloud()
+            point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
+            point_cloud_map: o3d.geometry.PointCloud = point_cloud_map.voxel_down_sample(
+                0.01)
+
+            if self.point_clouds_in_map % 40 == 0:
+                point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
+                    nb_neighbors=60, std_ratio=2)
+                self.global_map = np.asarray(point_cloud_map.points)
+                return
+
+            point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
+                nb_neighbors=30, std_ratio=3.5)
+            self.global_map = np.asarray(point_cloud_map.points)
+
+    def downsample_global_map(self) -> np.ndarray:
+        """
+        Downsample the global map to reduce the number of points.
+
+        :return: The downsampled global map
+        """
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
+        # point_cloud = point_cloud.voxel_down_sample(0.2)
+        # self.global_map = np.asarray(point_cloud.points)
+        return point_cloud.points
 
 
 def get_processor(

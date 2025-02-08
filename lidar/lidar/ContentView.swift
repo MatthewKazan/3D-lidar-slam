@@ -40,17 +40,30 @@ struct ContentView: View {
                             .cornerRadius(10)
                     }
                     .padding()
-                    
-                    Button(action: {
-                        arViewContainer.sendResetRequest()
-                    }) {
-                        Text("Clear DB")
-                            .padding()
-                            .background(Color.green)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
+                    HStack {
+                        
+                        Button(action: {
+                            arViewContainer.sendResetRequest()
+                        }) {
+                            Text("Clear DB")
+                                .padding()
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .padding()
+                        
+                        Button(action: {
+                            arViewContainer.sendSaveRequest()
+                        }) {
+                            Text("Save Map")
+                                .padding()
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .padding()
                     }
-                    .padding()
                 }
             }
             
@@ -125,6 +138,9 @@ struct ARViewContainer: UIViewControllerRepresentable {
     
     func sendResetRequest() {
         viewController.sendResetRequest()
+    }
+    func sendSaveRequest() {
+        viewController.sendSaveRequest()
     }
 }
 

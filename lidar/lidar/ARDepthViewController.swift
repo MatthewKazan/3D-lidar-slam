@@ -27,6 +27,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     var socket: WebSocket?
     var isConnected = false  // ✅ Track WebSocket connection status
     var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
+    var num_scans = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -36,10 +37,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         self.view.addSubview(arView)
         arView.session.delegate = self
 
-        // Enable LiDAR depth data collection
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.frameSemantics = .sceneDepth
-        arView.session.run(configuration)
+
         
         if selectedIP.isEmpty { return }
         self.setIPAddress(ip: selectedIP)
@@ -48,8 +46,14 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     // ✅ Start scanning and connect WebSocket only if not already connected
     func startScanning() {
         if isScanning { return }
+        // Enable LiDAR depth data collection
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.frameSemantics = .sceneDepth
+        arView.session.run(configuration)
+        num_scans = 0
+
         isScanning = true
-        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.20, repeats: true) { _ in
+        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.40, repeats: true) { _ in
             self.capturePointCloud()
         }
         
@@ -65,6 +69,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         isScanning = false
         scanningTimer?.invalidate()
         scanningTimer = nil
+//        arView.session.pause()
 
         if isConnected {
             print("Disconnecting WebSocket after scanning...")
@@ -137,7 +142,8 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             "data": base64EncodedData,
             "is_dense": true
         ]
-
+        num_scans+=1
+        print(num_scans)
         self.publishToTopic(msg: pointCloudMessage, topic: "/input_pointcloud")
     }
     
@@ -156,25 +162,38 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
 
     // ✅ Reset the WebSocket and send a reset message
     func sendResetRequest() {
-        if isConnected {
-            print("✅ WebSocket is already connected. Sending reset request...")
-            publishToTopic(msg: ["data": ""], topic: "/reset")
-        } else {
-            print("⚠️ WebSocket is not connected. Attempting to connect before sending reset...")
-            
-            // Attempt to connect, then send reset once connected
-            socket?.connect()
-            
-            // Use DispatchQueue to delay sending reset until connection is established
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                if self.isConnected {
-                    print("✅ WebSocket connected, now sending reset request...")
-                    self.publishToTopic(msg: ["data": ""], topic: "/reset")
-                } else {
-                    print("❌ WebSocket failed to connect. Reset request not sent.")
-                }
+
+        // Attempt to connect, then send reset once connected
+        socket?.connect()
+        
+        // Use DispatchQueue to delay sending reset until connection is established
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if self.isConnected {
+                print("✅ WebSocket connected, now sending reset request...")
+                self.publishToTopic(msg: ["data": ""], topic: "/reset")
+            } else {
+                print("❌ WebSocket failed to connect. Reset request not sent.")
             }
         }
+    
+        socket?.disconnect()
+    }
+    
+    func sendSaveRequest() {
+
+        // Attempt to connect, then send reset once connected
+        socket?.connect()
+        
+        // Use DispatchQueue to delay sending reset until connection is established
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            if self.isConnected {
+                print("✅ WebSocket connected, now sending save request...")
+                self.sendServiceRequest(service: "/save_global_map")
+            } else {
+                print("❌ WebSocket failed to connect. Save request not sent.")
+            }
+        }
+    
         socket?.disconnect()
     }
 
@@ -197,9 +216,28 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             break
         }
     }
+    
+    func sendServiceRequest(service: String) {
+        let message: [String: Any] = [
+            "op": "call_service",
+            "service": service,
+            "args": [:]
+        ]
+
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: message, options: [])
+            if let jsonString = String(data: jsonData, encoding: .utf8) {
+                socket?.write(string: jsonString)
+                print("Sent save request via WebSocket")
+            }
+        } catch {
+            print("Failed to encode JSON: \(error)")
+        }
+    }
 
     
     func publishToTopic(msg: Any, topic: String) {
+        
         // Wrap in a rosbridge-style JSON message
         let jsonMessage: [String: Any] = [
             "op": "publish",

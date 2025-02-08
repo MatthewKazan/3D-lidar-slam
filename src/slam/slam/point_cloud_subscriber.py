@@ -4,6 +4,7 @@ import signal
 from pathlib import Path
 
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import PointCloud2
 import sensor_msgs_py.point_cloud2 as pc2
 from std_msgs.msg import String
@@ -18,14 +19,14 @@ import open3d as o3d
 
 #TODO - clean up code
 
-#TODO - icp working badly, how to add back in voxelization/statistically outlier removal
-#TODO - make sure the weird data persistence problem is solved
-#TODO - how to save global map to ros bag - maybe save each scan too?
+#TODO - reset button doesn't work good
+#TODO - make bag name dynamic when saving
+#TODO - speed up everything TO SLOWW
 #TODO - add algorithm for sequential icp and global icp
+
 
 #TODO - decide whether to use rviz or open3d for visualization
 #TODO - built in ros2 icp?
-#TODO - speed up everything TO SLOWW
 #TODO - run on linux, fix readme
 #TODO - maybe gtsam?
 
@@ -49,10 +50,15 @@ class PointClouds2Subscriber(Node):
         since it's a long-running task and slow.
         """
         super().__init__('pointcloud_subscriber')
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            # Ensure reliable transmission
+            history=HistoryPolicy.KEEP_ALL  # Keep all messages in the queue
+        )
 
         # ROS 2 Subscriptions
         self.pc_subscription = self.create_subscription(
-            PointCloud2, '/input_pointcloud', self.listener_callback, 10
+            PointCloud2, '/input_pointcloud', self.listener_callback, qos_profile
         )
         self.clear_db_subscription = self.create_subscription(
             String, '/reset', self.reset_callback, 10
@@ -66,6 +72,7 @@ class PointClouds2Subscriber(Node):
         # Event Flags for Stopping & Resetting
         self.stop_event = multiprocessing.Event()
         self.reset_event = reset_event
+        self.num_pcs = 0
 
 
         #
@@ -82,7 +89,9 @@ class PointClouds2Subscriber(Node):
         try:
             points = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
             self.input_queue.put_nowait(points)
-            self.get_logger().info(f"Added new point cloud data to queue.")
+            self.num_pcs += 1
+            # self.get_logger().info(f"Added new point cloud data to queue.")
+            self.get_logger().info(f"Queue size: {self.num_pcs}")
         except queue.Full:
             self.get_logger().warn("PointCloud queue is full! Dropping frame.")
 
