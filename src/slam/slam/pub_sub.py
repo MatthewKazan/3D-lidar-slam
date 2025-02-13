@@ -1,14 +1,13 @@
 import multiprocessing
+import os
+import queue
 import threading
-import time
 
 import rclpy
-from rclpy.executors import MultiThreadedExecutor
-import queue
-
 from slam.point_cloud_publisher import PointCloudPublisher
 from slam.point_cloud_subscriber import PointClouds2Subscriber
 from slam.process_point_clouds import get_processor
+
 
 class ProcessPointCloudsThread2:
     """
@@ -55,12 +54,6 @@ class ProcessPointCloudsThread2:
             executor.shutdown()
             if rclpy.ok():
                 rclpy.shutdown()
-        # publisher_node.get_logger().info("destroying publisher node")
-        # publisher_node.destroy_node()
-        # executor.shutdown()
-        # if rclpy.ok():
-        #     rclpy.shutdown()
-
 
     def start(self) -> None:
         """
@@ -82,7 +75,14 @@ class ProcessPointCloudsThread2:
 
 
 def main():
-    # multiprocessing.set_start_method("spawn", force=True)  # Fix multiprocessing issues on MacOS
+    multiprocessing.set_start_method("spawn", force=True)  # Fix multiprocessing issues on MacOS
+    os.environ["RMW_IMPLEMENTATION"] = "rmw_cyclonedds_cpp"
+
+    # Disable unnecessary DDS buffering
+    os.environ[
+        "CYCLONEDDS_URI"] = ""
+    # Force UDP transport (reduces overhead)
+    os.environ["RMW_FASTRTPS_USE_UDP"] = "1"
 
     rclpy.init()
 
@@ -106,17 +106,16 @@ def main():
         stop_event=stop_event,
         reset_event=reset_event
     )
-
-
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(subscriber_node)
     try:
         processor_thread.start()
-        rclpy.spin(subscriber_node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        # subscriber_node.destroy_node()
-        # publisher_node.destroy_node()
         processor_thread.stop()
+        # executor.shutdown()
         if rclpy.ok():
             rclpy.shutdown()
 

@@ -1,0 +1,159 @@
+\documentclass[nonanonymous]{article}
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2020
+
+% ready for submission
+% \usepackage{neurips_2020}
+
+% to compile a preprint version, e.g., for submission to arXiv, add add the
+% [preprint] option:
+%     \usepackage[preprint]{neurips_2020}
+
+% to compile a camera-ready version, add the [final] option, e.g.:
+%     \usepackage[final]{neurips_2020}
+
+% to avoid loading the natbib package, add option nonatbib:
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+
+\title{Project Proposal for CS7150}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to LaTeX to determine where to break the
+% lines. Using \AND forces a line break at that point. So, if LaTeX puts 3 of 4
+% authors names on the first line, and the last on the second line, try using
+% \AND instead of \And before the third author name.
+
+\author{
+  Matthew Kazan \\
+  Khoury College of Computer Science\\
+  Northeastern University\\
+  Boston, MA 02115 \\
+  \texttt{kazan.m@northeastern.edu} \\
+}
+
+\begin{document}
+
+\maketitle
+
+\section{Overview of Project Idea}
+
+Simultaneous Localization and Mapping (SLAM) is a fundamental problem in robotics,
+particularly for autonomous navigation and 3D reconstruction.
+This project aims to enhance a LiDAR-based SLAM pipeline using deep learning
+for three critical components: loop closure detection, outlier rejection,
+and pose estimation.
+Additionally, a end-to-end deep learning SLAM model will be implemented to compare against
+the hybrid approach.
+
+The foundation of this project builds on prior work that involved developing a ROS2 pipeline
+and iPhone LiDAR scanning setup aiming to construct a global map of the environment.
+However, this previous work was strictly background software development—focused
+on data collection and system setup—without incorporating any deep learning methods.
+Since the research contribution of this project lies in the novel application of
+deep learning techniques to SLAM, it represents a distinct extension of prior efforts.
+
+Key Contributions:
+
+\begin{enumerate}
+\item Loop Closure Detection: Implement a deep learning-based method
+to detect revisited locations, reducing accumulated drift.
+\item Outlier Rejection: Train a neural network to filter out poor correspondences
+before ICP refinement, improving alignment robustness.
+\item Pose Estimation: Use a deep learning model (e.g., Deep Closest Point (DCP))
+to estimate a transformation between scans to construct a global map.
+We can also compare this to the ICP or other traditional point cloud registration algorithms.
+\item End-to-End Deep Learning SLAM: Implement a learning-based SLAM model that estimates poses and
+maps directly from LiDAR data, serving as a comparison point against the ICP-based hybrid approach.
+\end{enumerate}
+Performance will be evaluated based on localization accuracy, map consistency, and computational efficiency.
+
+
+\subsection*{Literature Survey}
+This project builds on existing research in deep learning-based SLAM and point cloud registration.
+Key related papers include:
+
+\begin{enumerate}
+\item G. Kim et al., "Scan Context: Egocentric Spatial Descriptor for Place Recognition Within 3D Point Cloud Map," IEEE T-RO 2018.
+
+\begin{itemize}
+\item Introduces a compact representation for place recognition in 3D point clouds, enabling efficient loop closure detection.
+The method encodes spatial relationships between keypoints, making it highly suitable for real-world SLAM applications.
+
+
+\end{itemize}
+
+\item S. Rakotosaona et al., "PointCleanNet: Learning to Denoise and Remove Outliers from Dense Point Clouds," CVPR 2020.
+
+\begin{itemize}
+\item Proposes a learning-based approach for denoising point clouds and removing outliers.
+The model is trained to differentiate between noise and meaningful structure, ensuring more reliable SLAM mapping, particularly in cluttered or dynamic environments.
+
+
+\end{itemize}
+
+\item H. Li et al., "DeepICP: An End-to-End Deep Neural Network for 3D Point Cloud Registration," CVPR 2019.
+
+\begin{itemize}
+\item Explores a deep learning alternative to ICP for point cloud registration, demonstrating improved robustness to initialization errors and noise.
+This work could be used as the end-to-end deep learning SLAM model, as it directly estimates the transformation between scans.
+
+\end{itemize}
+
+\item C. Choy et al., "Deep Global Registration," CVPR 2020.
+
+\begin{itemize}
+\item Introduces a global feature-based registration method using deep learning.
+This approach allows for more reliable registration in challenging environments and is particularly useful for end-to-end deep learning SLAM systems.
+The method avoids local minima problems common in traditional registration algorithms, ensuring more stable map construction.
+
+\end{itemize}
+
+\end{enumerate}
+
+
+
+\subsection*{Potential Datasets}
+\begin{enumerate}
+\item KITTI Odometry Dataset – Provides LiDAR scans and ground truth poses for benchmarking SLAM accuracy.
+
+
+\item ETH LiDAR Benchmark Dataset – Contains real-world LiDAR scans for evaluating outlier rejection and loop closure detection.
+
+
+\item Custom iPhone LiDAR Data – Collected using a ROS2-integrated iPhone LiDAR scanner to validate performance on real-world mobile mapping tasks.
+
+
+\end{enumerate}
+
+\subsection*{Plan of Activities}
+\begin{enumerate}
+\item Week 1:Set up ROS2 pipeline, process iPhone LiDAR scans into structured point cloud datasets.
+
+\item \item Week 2: Implement algorithms for point cloud registration using ICP and other deep learning methods.
+
+\item Week 2--3: Implement deep learning models for loop closure detection using Scan Context and outlier rejection using PointCleanNet.
+
+\item Week 4--5:Develop a fully deep learning SLAM system, incorporating Deep Global Registration to estimate pose and build a global map.
+
+\item Week 6:Conduct experiments, compare deep learning SLAM vs.\ ICP baseline, finalize project report.
+
+
+\end{enumerate}
+This plan ensures a deep learning-based SLAM approach is developed, tested, and benchmarked before submission.
+
+
+
+\end{document}

@@ -1,30 +1,24 @@
-import os
+import multiprocessing
 import queue
-import signal
-from pathlib import Path
+import time
+from multiprocessing import Queue
 
+import sensor_msgs_py.point_cloud2 as pc2
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import PointCloud2
-import sensor_msgs_py.point_cloud2 as pc2
 from std_msgs.msg import String
-import multiprocessing
-import time
-from collections import deque
-from multiprocessing import Queue
-from typing import Optional
 
-import numpy as np
-import open3d as o3d
 
-#TODO - clean up code
+# GET BASICS WORKING
+#TODO - add display_bag instructions to readme
 
-#TODO - reset button doesn't work good
-#TODO - make bag name dynamic when saving
-#TODO - speed up everything TO SLOWW
+# OPTIONAL
+#TODO - speed up ICP
+#TODO - increase outlier detection -- too much noise
+
+# NEXT STEPS -- ADDING FUNCTIONALITY
 #TODO - add algorithm for sequential icp and global icp
-
-
 #TODO - decide whether to use rviz or open3d for visualization
 #TODO - built in ros2 icp?
 #TODO - run on linux, fix readme
@@ -35,7 +29,8 @@ import open3d as o3d
 #TODO - loop closure detection, feature extraction, etc.
 #TODO - deep learning + icp hybrid approach and pure deep learning slam algorithm
 
-
+# FAR OFF FUTURE FEATURES - MAYBE
+#TODO - have phone display global map
 
 
 class PointClouds2Subscriber(Node):
@@ -51,14 +46,15 @@ class PointClouds2Subscriber(Node):
         """
         super().__init__('pointcloud_subscriber')
         qos_profile = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            # Ensure reliable transmission
-            history=HistoryPolicy.KEEP_ALL  # Keep all messages in the queue
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+
         )
 
         # ROS 2 Subscriptions
         self.pc_subscription = self.create_subscription(
-            PointCloud2, '/input_pointcloud', self.listener_callback, qos_profile
+            PointCloud2, '/input_pointcloud', self.listener_callback, qos_profile,
         )
         self.clear_db_subscription = self.create_subscription(
             String, '/reset', self.reset_callback, 10
@@ -87,11 +83,19 @@ class PointClouds2Subscriber(Node):
         Callback function that adds new point cloud data to the queue.
         """
         try:
+            receive_time = time.time()
+            sent_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+            processing_delay = receive_time - sent_time
+            self.get_logger().debug(
+                f"transport delay: {processing_delay:.6f} sec")
+
             points = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
             self.input_queue.put_nowait(points)
+
             self.num_pcs += 1
-            # self.get_logger().info(f"Added new point cloud data to queue.")
-            self.get_logger().info(f"Queue size: {self.num_pcs}")
+            self.get_logger().debug(f"Added new point cloud data to queue.")
+            self.get_logger().debug(f"Queue size: {self.num_pcs}")
+
         except queue.Full:
             self.get_logger().warn("PointCloud queue is full! Dropping frame.")
 

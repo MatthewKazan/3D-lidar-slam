@@ -13,19 +13,11 @@ class TopicAdvertiser(Node):
     def __init__(self):
         super().__init__('topic_advertiser')
 
-        # Advertise the topic 'pointcloud_topic' with the String message type
+        # Advertise the topic 'input_pointcloud' with the PointCloud2 message type
         self.publisher_ = self.create_publisher(PointCloud2, '/input_pointcloud', 10)
-        self.get_logger().info('PointCloud publisher node has been started')
-        self.publisher_ = self.create_publisher(String, '/reset', 10)
-        self.get_logger().info('reset node has been started')
-
-    #     # self.publish_message("Sample point cloud data")
-    #
-    # def publish_message(self, message):
-    #     msg = String()
-    #     msg.data = message  # The message data being sent
-    #     self.publisher_.publish(msg)
-    #     self.get_logger().info(f"Publishing: '{msg.data}'")
+        self.get_logger().info('input_pointcloud topic has been advertised')
+        self.publisher1_ = self.create_publisher(String, '/reset', 10)
+        self.get_logger().info('reset topic has been advertised')
 
 
 def main(args=None):

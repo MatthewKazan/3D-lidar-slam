@@ -1,18 +1,12 @@
-import os
-import signal
-
-import yaml
-
 import multiprocessing
+import os
 import time
-from collections import deque
-from queue import Queue
-from typing import Optional
 from abc import ABC, abstractmethod
+from queue import Queue
 
 import numpy as np
 import open3d as o3d
-
+import yaml
 from slam.point_cloud_publisher import PointCloudPublisher
 
 
@@ -71,16 +65,6 @@ class ProcessPointClouds(ABC):
         # signal.signal(signal.SIGINT, self.signal_handler)
         # signal.signal(signal.SIGTERM, self.signal_handler)
         # self.start_process_thread()
-    def save_map_callback(self, request, response):
-        if self.global_map is None:
-            response.success = False
-            response.message = "No global map available to save!"
-            self.publisher_node.get_logger().warn(response.message)
-            return response
-        self.publisher_node.save_point_cloud(self.global_map)
-        response.success = True
-        response.message = "Global map saved successfully!"
-        self.publisher_node.get_logger().info(response.message)
 
     def load_config(self, config_name: str):
         """
@@ -190,6 +174,13 @@ class ProcessPointClouds(ABC):
 
     @abstractmethod
     def downsample_global_map(self) -> np.ndarray:
+        """
+        Function which downsamples the global map to reduce the number of points
+        in the global map. Used to reduce number of points published to avoid overwhelming rviz
+        without sacrificing local accuracy.
+
+        :return: numpy array of downsampled points
+        """
         pass
 
 
@@ -301,7 +292,11 @@ class ICPProcessor(ProcessPointClouds):
         self.previous_transformation.append(result_icp.transformation)
         return result_icp.transformation
 
-    def do_stuff(self):
+    def do_stuff(self) -> None:
+        """
+        Do some basic point cloud processing on the global map every few point
+        clouds, remove outliers, downsample, etc.
+        """
         # Pulled all of these numbers out of nowhere
         if self.point_clouds_in_map % 10 == 0:
             point_cloud_map = o3d.geometry.PointCloud()

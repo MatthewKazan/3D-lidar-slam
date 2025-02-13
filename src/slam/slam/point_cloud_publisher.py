@@ -1,9 +1,11 @@
-import rclpy
+import time
+
 import rosbag2_py
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, \
     HistoryPolicy
 from rclpy.serialization import serialize_message
+from rclpy.service import SrvTypeResponse
 from std_msgs.msg import Header
 from std_srvs.srv import Trigger
 import sensor_msgs_py.point_cloud2 as pc2
@@ -12,10 +14,11 @@ import numpy as np
 
 
 class PointCloudPublisher(Node):
+    """
+    A ROS 2 node that publishes a PointCloud2 message to the /global_map topic.
+    Used to separate ros2 functionality from the slam functionality.
+    """
     def __init__(self):
-        """
-        :param global_map_ref: Reference to the global map (PointCloud2 object)
-        """
         super().__init__('global_map_publisher')
 
         qos_profile = QoSProfile(
@@ -35,7 +38,15 @@ class PointCloudPublisher(Node):
         self.get_logger().info(
             "PointCloud publisher started with external global map reference.")
 
-    def publish_point_cloud(self, points_np: np.ndarray):
+    def publish_point_cloud(self, points_np: np.ndarray) -> None:
+        """
+        Constructs a PointCloud2 message from the given Nx3 numpy array and
+        publishes it to the /global_map topic.
+
+        :param points_np: The Nx3 numpy array of points to publish
+
+        """
+
         # Create ROS2 message
         self.global_map_ref = points_np
         print(points_np)
@@ -48,8 +59,15 @@ class PointCloudPublisher(Node):
         self.get_logger().info(
             f"Published {len(points_np)} points to /global_map.")
 
-    def save_map_callback(self, request, response):
-        """ Saves the current global map when requested """
+    def save_map_callback(self, request, response) -> SrvTypeResponse:
+        """
+        Saves the current global map to a ROS bag file when requested.
+
+        :param request: The service request
+        :param response: The service response
+
+        :return: The service response
+        """
         if not self.global_map_ref:
             response.success = False
             response.message = "No global map available to save!"
@@ -62,12 +80,14 @@ class PointCloudPublisher(Node):
         return response
 
     def save_point_cloud(self):
-        """ Saves the global map reference to a ROS bag file """
-        # TODO: Make bag file name dynamic
+        """
+        Saves the global map reference to a ROS bag file
+        """
+        bag_name = generate_unique_bag_name()
         self.get_logger().info("Saving global map to rosbag...")
 
         writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py.StorageOptions(uri="global_map_bag",
+        storage_options = rosbag2_py.StorageOptions(uri=bag_name,
                                                     storage_id="sqlite3")
         converter_options = rosbag2_py.ConverterOptions("", "")
 
@@ -87,4 +107,12 @@ class PointCloudPublisher(Node):
 
         writer.write('/global_map', serialize_message(cloud_msg),
                      self.get_clock().now().nanoseconds)
-        self.get_logger().info("Global map saved to global_map_bag.")
+        self.get_logger().info(f"Global map saved to {bag_name}.")
+
+
+def generate_unique_bag_name(base_name="global_map_bag"):
+    """
+    Generates a unique bag file name by appending a timestamp.
+    """
+    timestamp = time.strftime("%Y%m%d_%H%M%S")  # Format: YYYYMMDD_HHMMSS
+    return f"{base_name}_{timestamp}"

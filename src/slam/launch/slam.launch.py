@@ -2,12 +2,10 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch import logging
-from launch.launch_description_sources import AnyLaunchDescriptionSource
-from ament_index_python.packages import get_package_share_directory
-import os
+
 
 def launch_setup(context, *args, **kwargs):
+
     launch_nodes = [
         # Start the static transform publisher
         Node(
@@ -33,11 +31,16 @@ def launch_setup(context, *args, **kwargs):
             package='rosbridge_server',
             executable='rosbridge_websocket',
             name='rosbridge_websocket',
-            output='screen',
             parameters=[{
-                'port': 9090,  # Ensure the correct port is set
-                'use_compression': True,
-                # Enable compression for better performance
+                'port': 9090,  # Ensure correct WebSocket port
+                # 'use_compression': True,  # Enable compression (better performance)
+                'fragment_size': 1048576,  # Increase buffer size to prevent throttling
+                'max_message_size': 104857600,  # Allow large message sizes (100MB)
+                # 'bson_only_mode': True,  # Keep JSON support
+                'unregister_timeout': 1.0,
+                'retry_interval': 0.05,  # Reduce WebSocket retry time
+                'tcp_nodelay': True
+                # # Disable Nagle's Algorithm for faster transmission
             }],
         )
     ]

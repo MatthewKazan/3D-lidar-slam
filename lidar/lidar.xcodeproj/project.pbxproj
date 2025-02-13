@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		2271F2752D4D7ADE00EB9227 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = 2271F2742D4D7ADE00EB9227 /* Starscream */; };
+		229C10D32D5D6BF0005B8184 /* Starscream in Frameworks */ = {isa = PBXBuildFile; productRef = 229C10D22D5D6BF0005B8184 /* Starscream */; };
+		229C10D62D5D6D07005B8184 /* BSON in Frameworks */ = {isa = PBXBuildFile; productRef = 229C10D52D5D6D07005B8184 /* BSON */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,7 +57,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2271F2752D4D7ADE00EB9227 /* Starscream in Frameworks */,
+				229C10D62D5D6D07005B8184 /* BSON in Frameworks */,
+				229C10D32D5D6BF0005B8184 /* Starscream in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,7 +127,8 @@
 			);
 			name = lidar;
 			packageProductDependencies = (
-				2271F2742D4D7ADE00EB9227 /* Starscream */,
+				229C10D22D5D6BF0005B8184 /* Starscream */,
+				229C10D52D5D6D07005B8184 /* BSON */,
 			);
 			productName = lidar;
 			productReference = 228EFFE32CD19D1F00703F6D /* lidar.app */;
@@ -210,7 +213,8 @@
 			mainGroup = 228EFFDA2CD19D1F00703F6D;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				2271F2722D4D77FC00EB9227 /* XCRemoteSwiftPackageReference "Starscream" */,
+				229C10D12D5D6BF0005B8184 /* XCRemoteSwiftPackageReference "Starscream" */,
+				229C10D42D5D6CA4005B8184 /* XCRemoteSwiftPackageReference "BSON" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 228EFFE42CD19D1F00703F6D /* Products */;
@@ -583,7 +587,7 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		2271F2722D4D77FC00EB9227 /* XCRemoteSwiftPackageReference "Starscream" */ = {
+		229C10D12D5D6BF0005B8184 /* XCRemoteSwiftPackageReference "Starscream" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/daltoniam/Starscream.git";
 			requirement = {
@@ -591,13 +595,26 @@
 				minimumVersion = 4.0.8;
 			};
 		};
+		229C10D42D5D6CA4005B8184 /* XCRemoteSwiftPackageReference "BSON" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/orlandos-nl/BSON.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.1.5;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		2271F2742D4D7ADE00EB9227 /* Starscream */ = {
+		229C10D22D5D6BF0005B8184 /* Starscream */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 2271F2722D4D77FC00EB9227 /* XCRemoteSwiftPackageReference "Starscream" */;
+			package = 229C10D12D5D6BF0005B8184 /* XCRemoteSwiftPackageReference "Starscream" */;
 			productName = Starscream;
+		};
+		229C10D52D5D6D07005B8184 /* BSON */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 229C10D42D5D6CA4005B8184 /* XCRemoteSwiftPackageReference "BSON" */;
+			productName = BSON;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

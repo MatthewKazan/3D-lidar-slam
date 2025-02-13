@@ -30,7 +30,6 @@ struct ContentView: View {
                 if !isShowingMenu {
                     Button(action: {
                         isScanning.toggle()
-                        arViewContainer.updateIPAddress(selectedIP)
                         arViewContainer.toggleScanning()
                     }) {
                         Text(isScanning ? "Stop Scanning" : "Start Scanning")
