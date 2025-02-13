@@ -19,6 +19,15 @@ import UIKit
 import ARKit
 import Starscream  // ✅ Ensure Starscream is imported for WebSocket
 
+/// **ARDepthViewController**
+/// This class manages an **ARKit-based LiDAR depth capture** session, processes the depth data,
+/// and transmits the **3D point cloud** via a **WebSocket connection** to a ROS2 system.
+///
+/// - Captures LiDAR depth data using ARKit.
+/// - Filters and encodes the data as a **PointCloud2** message.
+/// - Sends data via a **WebSocket connection**.
+/// - Provides start/stop functionality for scanning.
+/// - Handles WebSocket reconnections automatically.
 class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDelegate {
     var arView: ARSCNView!
     var capturedPointCloud: [SIMD3<Float>] = []
@@ -43,7 +52,9 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         self.setIPAddress(ip: selectedIP)
     }
 
-    // ✅ Start scanning and connect WebSocket only if not already connected
+    // MARK: - **Scanning Control Methods**
+    
+    /// Starts LiDAR scanning and begins sending point cloud data.
     func startScanning() {
         if isScanning { return }
         self.setIPAddress(ip: selectedIP)
@@ -59,7 +70,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         }
     }
 
-    // ✅ Stop scanning and disconnect WebSocket safely
+    /// Stops LiDAR scanning and terminates point cloud transmission.
     func stopScanning() {
         if !isScanning { return }
         isScanning = false
@@ -69,11 +80,14 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
 
     }
 
-    // ✅ Toggle scanning state
+    /// Toggles scanning between **start** and **stop**.
     func toggleScanning() {
         isScanning ? stopScanning() : startScanning()
     }
-
+    
+    // MARK: - **LiDAR Point Cloud Capture**
+      
+    /// Captures the current **LiDAR depth map** from ARKit and processes it into a point cloud.
     func capturePointCloud() {
         guard isScanning, let frame = arView.session.currentFrame, let depthData = frame.sceneDepth?.depthMap else {
             print("Depth data is unavailable.")
@@ -82,6 +96,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         uploadPointCloud(from: depthData)
     }
     
+    /// Converts a **CVPixelBuffer depth map** into a **PointCloud2 format** and sends it via WebSocket.
     func uploadPointCloud(from depthData: CVPixelBuffer) {
         CVPixelBufferLockBaseAddress(depthData, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(depthData, .readOnly) }
@@ -109,11 +124,12 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         }
 
         let base64EncodedData = pointData.base64EncodedString()
-        let currentTime = Date().addingTimeInterval(0.1)
+        let currentTime = Date()
         let timeInterval = currentTime.timeIntervalSince1970
         let secs = Int32(timeInterval)
         let nsecs = Int32((timeInterval - Double(secs)) * 1_000_000_000)
 
+        // Construct **ROS2 PointCloud2 message**
         let header: [String: Any] = [
             "stamp": ["secs": secs, "nsecs": nsecs],
             "frame_id": "camera_link"
@@ -141,7 +157,9 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         print(newTime.timeIntervalSince1970 - timeInterval)
     }
     
-    // ✅ Handle WebSocket Reconnection and Disconnects
+    // MARK: - **WebSocket Connection Handling**
+        
+    /// Establishes a WebSocket connection to the **ROS2 bridge server**.
     func setIPAddress(ip: String) {
         print("Setting new IP: \(ip)")
         selectedIP = ip
@@ -149,6 +167,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         
         var request = URLRequest(url: URL(string: "ws://\(selectedIP):9090")!)
         request.timeoutInterval = 1
+        // A lot of the following probably isn't necessary but the websocket has been finnicky so im not touching it
         // ✅ Force WebSocket to send packets immediately (disable Nagle’s Algorithm)
         request.setValue("Upgrade", forHTTPHeaderField: "Connection")
         request.setValue("Keep-Alive", forHTTPHeaderField: "Proxy-Connection")
@@ -168,7 +187,9 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
 
     }
 
-    // ✅ Reset the WebSocket and send a reset message
+    // MARK: - **WebSocket Delegate Methods**
+        
+    /// Sends a request to **reset the ROS2 system** via WebSocket.
     func sendResetRequest() {
         self.setIPAddress(ip: selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -176,6 +197,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         }
     }
     
+    /// Sends a request to **save the current global map** in ROS2.
     func sendSaveRequest() {
         self.setIPAddress(ip: selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -183,7 +205,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         }
     }
 
-    // ✅ WebSocket Delegate Methods
+    /// Handles WebSocket connection events.
     func didReceive(event: Starscream.WebSocketEvent, client: any Starscream.WebSocketClient) {
         switch event {
         case .connected(_):
@@ -203,6 +225,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         }
     }
     
+    /// Sends a service request to a **ROS2 service** via WebSocket.
     func sendServiceRequest(service: String) {
         let message: [String: Any] = [
             "op": "call_service",
@@ -220,8 +243,8 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             print("Failed to encode JSON: \(error)")
         }
     }
-
-    
+       
+   /// Publishes a **ROS2 topic message** over the WebSocket.
     func publishToTopic(msg: Any, topic: String) {
         
         // Wrap in a rosbridge-style JSON message
@@ -242,46 +265,4 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             print("Failed to publish to topic \(error)")
         }
     }
-    
-//    func uploadPointCloud(from depthData: CVPixelBuffer) {
-//        CVPixelBufferLockBaseAddress(depthData, .readOnly)
-//        defer { CVPixelBufferUnlockBaseAddress(depthData, .readOnly) }
-//
-//        let width = Int(CVPixelBufferGetWidth(depthData))
-//        let height = Int(CVPixelBufferGetHeight(depthData))
-//        let depthPointer = unsafeBitCast(CVPixelBufferGetBaseAddress(depthData), to: UnsafeMutablePointer<Float32>.self)
-//
-//        // Create the point cloud as raw tuples
-//        var pointCloud: [Point] = []
-//        for y in 0..<height {
-//            for x in 0..<width {
-//                let depth = depthPointer[y * width + x]
-//                if depth > 0 {
-//                    pointCloud.append(Point(x: Float(x), y: Float(y), z: depth))
-//                }
-//            }
-//        }
-//
-//        // Prepare the JSON payload
-//        do {
-//            let jsonData = try JSONEncoder().encode(pointCloud)
-//            
-//            // Upload the JSON directly
-//            var request = URLRequest(url: URL(string: "http://10.0.0.199:9090")!)
-//            request.httpMethod = "POST"
-//            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-//            request.httpBody = jsonData
-//
-//            URLSession.shared.dataTask(with: request) { data, response, error in
-//                if let error = error {
-//                    print("Error uploading point cloud: \(error)")
-//                    return
-//                }
-//                print("Point cloud uploaded successfully")
-//            }.resume()
-//        } catch {
-//            print("Failed to encode point cloud: \(error)")
-//        }
-//    }
-//    
 }

@@ -72,7 +72,7 @@ class PointClouds2Subscriber(Node):
             receive_time = time.time()
             sent_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
             processing_delay = receive_time - sent_time
-            self.get_logger().debug(
+            self.get_logger().info(
                 f"transport delay: {processing_delay:.6f} sec")
 
             points = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
