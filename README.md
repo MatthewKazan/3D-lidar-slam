@@ -37,3 +37,12 @@ mamba install ros-humble-rosbridge-suite
     ros2 launch slam slam.launch.py launch_rviz:=true config:=lidar_config.yaml
 ```
 
+### To view saved global maps
+```bash
+ ros2 run slam display_bag global_map_bag_<unique_id>/global_map_bag_<unique_id>_0.db3 /global_map True
+```
+Then in a new terminal
+```bash
+rviz2
+```
+Then in rviz2, add a new display, select PointCloud2, and select the topic /global_map. You should see the pointclouds.

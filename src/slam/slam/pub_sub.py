@@ -49,7 +49,6 @@ class ProcessPointCloudsThread2:
         except KeyboardInterrupt:
             print("Stopped by user")
         finally:
-            # publisher_node.get_logger().info("destroying publisher node")
             publisher_node.destroy_node()
             executor.shutdown()
             if rclpy.ok():
@@ -75,14 +74,13 @@ class ProcessPointCloudsThread2:
 
 
 def main():
+    # No idea if the following lines are necessary but
+    # websockets has been finicky so im not touching it
     multiprocessing.set_start_method("spawn", force=True)  # Fix multiprocessing issues on MacOS
     os.environ["RMW_IMPLEMENTATION"] = "rmw_cyclonedds_cpp"
-
-    # Disable unnecessary DDS buffering
-    os.environ[
-        "CYCLONEDDS_URI"] = ""
-    # Force UDP transport (reduces overhead)
+    os.environ["CYCLONEDDS_URI"] = ""
     os.environ["RMW_FASTRTPS_USE_UDP"] = "1"
+    # End weirdness
 
     rclpy.init()
 
@@ -115,7 +113,6 @@ def main():
         pass
     finally:
         processor_thread.stop()
-        # executor.shutdown()
         if rclpy.ok():
             rclpy.shutdown()
 

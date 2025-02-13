@@ -10,16 +10,10 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
 
-# GET BASICS WORKING
-#TODO - add display_bag instructions to readme
-
-# OPTIONAL
+# OPTIONAL NEXT STEPS -- ADDING FUNCTIONALITY
 #TODO - speed up ICP
-#TODO - increase outlier detection -- too much noise
-
-# NEXT STEPS -- ADDING FUNCTIONALITY
+#TODO - increase outlier detection for ICP -- too much noise
 #TODO - add algorithm for sequential icp and global icp
-#TODO - decide whether to use rviz or open3d for visualization
 #TODO - built in ros2 icp?
 #TODO - run on linux, fix readme
 #TODO - maybe gtsam?
@@ -70,14 +64,6 @@ class PointClouds2Subscriber(Node):
         self.reset_event = reset_event
         self.num_pcs = 0
 
-
-        #
-        # # Handle system signals (SIGTERM, SIGINT)
-        # signal.signal(signal.SIGINT, self.signal_handler)
-        # signal.signal(signal.SIGTERM, self.signal_handler)
-
-        # Start Processing Thread
-
     def listener_callback(self, msg):
         """
         Callback function that adds new point cloud data to the queue.
@@ -107,36 +93,3 @@ class PointClouds2Subscriber(Node):
             "Received reset signal, clearing point cloud processing.")
         self.input_queue.empty()
         self.reset_event.set()
-
-    # def signal_handler(self, signum, frame):
-    #     """Handles external termination signals (SIGINT, SIGTERM)."""
-    #     self.get_logger().info(f"Received signal {signum}, shutting down...")
-    #     self.destroy_node()
-
-    # def destroy_node(self):
-    #     """
-    #     Cleanup function when the node is shut down.
-    #     """
-    #     self.get_logger().info("Shutting down point cloud subscriber...")
-    #
-    #     # Signal the processing loop to stop
-    #     self.stop_event.set()
-    #
-    #     super().destroy_node()
-
-
-# def main(args=None):
-#     rclpy.init(args=args)
-#     node = PointClouds2Subscriber()
-#
-#     try:
-#         rclpy.spin(node)
-#     except KeyboardInterrupt:
-#         node.get_logger().info("Keyboard interrupt received, shutting down...")
-#     finally:
-#         node.destroy_node()
-#         rclpy.shutdown()
-#
-#
-# if __name__ == '__main__':
-#     main()

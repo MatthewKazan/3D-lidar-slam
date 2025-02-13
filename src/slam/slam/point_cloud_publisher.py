@@ -49,7 +49,6 @@ class PointCloudPublisher(Node):
 
         # Create ROS2 message
         self.global_map_ref = points_np
-        print(points_np)
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"

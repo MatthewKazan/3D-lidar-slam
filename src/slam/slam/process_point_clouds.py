@@ -316,7 +316,7 @@ class ICPProcessor(ProcessPointClouds):
 
     def downsample_global_map(self) -> np.ndarray:
         """
-        Downsample the global map to reduce the number of points.
+        Downsample the global map to reduce the number of points. maybe unnecessary
 
         :return: The downsampled global map
         """

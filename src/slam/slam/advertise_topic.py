@@ -23,10 +23,6 @@ class TopicAdvertiser(Node):
 def main(args=None):
     rclpy.init(args=args)
     topic_advertiser = TopicAdvertiser()
-    # Keep the publisher running
-    # rclpy.spin_once()
-    # rclpy.spin(topic_advertiser)
-    # topic_advertiser.destroy_node()
     rclpy.shutdown()
 
 
