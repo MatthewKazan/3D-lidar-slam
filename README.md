@@ -44,7 +44,12 @@ rviz2
 Then in a new terminal
 
 ```bash
- ros2 bag play src/slam/rosbags/global_map_bag_<unique_id>/global_map_bag_<unique_id>_0.db3
+ ros2 bag play src/slam/rosbags/rosbags_<unique_id>/<input or global>/<input or global>_0.bag
+ ```
+For example
+```bash
+ ros2 bag play src/slam/rosbags/rosbags_20250213_190958/global/global_0.db3
+ ros2 bag play src/slam/rosbags/rosbags_20250213_190958/input/input_0.db3
  ```
 
 Then in rviz2, add a new display, select PointCloud2, and select the topic /global_map. You should see the pointclouds.
