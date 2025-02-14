@@ -1,5 +1,13 @@
+"""
+This module contains classes process and store point clouds. Gets raw point
+cloud data from the ros2, converts it from pixels to meters then does some
+algorithm to store it in a global map. All algorithms are subclasses of the
+ProcessPointClouds class. The ICPProcessor class aligns the new point cloud with
+"""
+import asyncio
 import multiprocessing
 import os
+import threading
 import time
 from abc import ABC, abstractmethod
 from queue import Queue
@@ -56,24 +64,20 @@ class ProcessPointClouds(ABC):
         self.stop_event = stop_event
         self.reset_event = reset_event
         self.publisher_node = publisher_node
+
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.loop_thread = threading.Thread(target=self.loop.run_forever, daemon=True)
+        self.loop_thread.start()
+
         self.publisher_node.get_logger().info(f"Using {self.__class__.__name__} for point cloud processing")
 
-        # Start Processing Thread
-        # self.process_thread = multiprocessing.Process(target=self.start_process_thread)
-
-        # Handle system signals (SIGTERM, SIGINT)
-        # signal.signal(signal.SIGINT, self.signal_handler)
-        # signal.signal(signal.SIGTERM, self.signal_handler)
-        # self.start_process_thread()
-
-    def load_config(self, config_name: str):
+    def load_config(self, config_path: str) -> None:
         """
-        Loads configuration parameters from a YAML file.
+        Loads configuration parameters of the lidar scanner from a YAML file.
+
+        :param config_path: Path to the YAML configuration file.
         """
-        dir_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../../"))
-        config_path = os.path.join(dir_path,
-                                          f'configs/{config_name}')
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
 
@@ -127,35 +131,30 @@ class ProcessPointClouds(ABC):
             # Get the latest point cloud from the database
             if self.input_queue.empty():
                 time.sleep(0.1)
-                self.no_new_data = True
                 continue
             point_cloud_pixel = self.input_queue.get()
+            asyncio.run_coroutine_threadsafe(
+                self.publisher_node.save_input_pointcloud(point_cloud_pixel),
+                self.loop
+            )
 
-            self.publisher_node.get_logger().info(f"{len(point_cloud_pixel)} points received from queue")
+            self.publisher_node.get_logger().debug(f"{len(point_cloud_pixel)} points received from queue")
             # Process the point cloud
             if point_cloud_pixel is not None:
                 self.publisher_node.get_logger().info(
                     f"pcs processed so far: {self.point_clouds_in_map}")
 
                 point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
+                del point_cloud_pixel
                 self.construct_global_map(point_cloud_3d)
 
-                self.publisher_node.publish_point_cloud(self.downsample_global_map())
+                # self.publisher_node.publish_point_cloud(self.downsample_global_map())
+                self.publisher_node.publish_point_cloud(self.global_map)
                 self.point_clouds_in_map += 1
-                self.no_new_data = False
 
         self.publisher_node.get_logger().info("shutting down processing loop")
 
-    @abstractmethod
-    def construct_global_map(self, points: np.array) -> None:
-        """
-        Construct the global map from the point cloud.
-
-        :param points: A numpy array of x,y,z points in meters
-        """
-        pass
-
-    def reset(self):
+    def reset(self) -> None:
         """
         Reset the point cloud processor.
         """
@@ -164,13 +163,22 @@ class ProcessPointClouds(ABC):
         self.previous_transformation = [np.identity(4)]
         self.start_time = None
         self.publisher_node.publish_point_cloud(np.array([[0,0,0]]))
-        self.publisher_node.publish_point_cloud(np.array([[0,0,0]]))
+        self.publisher_node.reset()
 
         self.reset_event.clear()
         time.sleep(1)
         while not self.input_queue.empty():
             self.input_queue.get(block=False)
-        return None
+
+    @abstractmethod
+    def construct_global_map(self, points: np.array) -> None:
+        """
+        Construct the global map from the point cloud.
+        Store the global map in the global_map instance variable.
+
+        :param points: A numpy array of x,y,z points in meters
+        """
+        pass
 
     @abstractmethod
     def downsample_global_map(self) -> np.ndarray:
@@ -298,20 +306,27 @@ class ICPProcessor(ProcessPointClouds):
         clouds, remove outliers, downsample, etc.
         """
         # Pulled all of these numbers out of nowhere
-        if self.point_clouds_in_map % 10 == 0:
+        if self.point_clouds_in_map < 10:
+            return
+        if self.point_clouds_in_map % 10 == 0 or self.input_queue.empty():
             point_cloud_map = o3d.geometry.PointCloud()
             point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
             point_cloud_map: o3d.geometry.PointCloud = point_cloud_map.voxel_down_sample(
-                0.01)
+                0.001)
 
             if self.point_clouds_in_map % 40 == 0:
                 point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
-                    nb_neighbors=60, std_ratio=2)
+                    nb_neighbors=80, std_ratio=2)
+                # This is slow but seems to make a difference
+                point_cloud_map, _ = point_cloud_map.remove_radius_outlier(
+                    nb_points=8, radius=0.023)
+
                 self.global_map = np.asarray(point_cloud_map.points)
                 return
 
             point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
-                nb_neighbors=30, std_ratio=3.5)
+                nb_neighbors=45, std_ratio=3.5)
+
             self.global_map = np.asarray(point_cloud_map.points)
 
     def downsample_global_map(self) -> np.ndarray:

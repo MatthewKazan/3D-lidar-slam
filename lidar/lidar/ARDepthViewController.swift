@@ -204,6 +204,12 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             self.sendServiceRequest(service: "/save_global_map")
         }
     }
+    func sendToggleSaveInputRequest() {
+        self.setIPAddress(ip: selectedIP)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.sendServiceRequest(service: "/toggle_save_inputs")
+        }
+    }
 
     /// Handles WebSocket connection events.
     func didReceive(event: Starscream.WebSocketEvent, client: any Starscream.WebSocketClient) {

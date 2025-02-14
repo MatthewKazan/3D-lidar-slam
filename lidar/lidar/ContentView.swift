@@ -62,6 +62,17 @@ struct ContentView: View {
                                 .cornerRadius(10)
                         }
                         .padding()
+                        
+                        Button(action: {
+                            arViewContainer.sendToggleSaveInputRequest()
+                        }) {
+                            Text("Save Inputs")
+                                .padding()
+                                .background(Color.indigo)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                        }
+                        .padding()
                     }
                 }
             }
@@ -140,6 +151,9 @@ struct ARViewContainer: UIViewControllerRepresentable {
     }
     func sendSaveRequest() {
         viewController.sendSaveRequest()
+    }
+    func sendToggleSaveInputRequest() {
+        viewController.sendToggleSaveInputRequest()
     }
 }
 

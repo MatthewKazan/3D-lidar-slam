@@ -6,7 +6,9 @@ import threading
 import rclpy
 from slam.point_cloud_publisher import PointCloudPublisher
 from slam.point_cloud_subscriber import PointClouds2Subscriber
-from slam.process_point_clouds import get_processor
+from scripts.process_point_clouds import get_processor
+
+from scripts.paths import PATH_TO_CONFIG
 
 
 class ProcessPointCloudsThread2:
@@ -95,11 +97,14 @@ def main():
     algorithm = subscriber_node.declare_parameter('algorithm', 'icp').value.lower()
     camera_config_name = subscriber_node.declare_parameter('config',
                                                 'lidar_config.yaml').value.lower()
-
+    config_path = os.path.join(
+        PATH_TO_CONFIG,
+        camera_config_name
+    )
     # Start processor in a separate thread
     processor_thread = ProcessPointCloudsThread2(
         algorithm=algorithm,
-        config_path=camera_config_name,
+        config_path=str(config_path),
         input_queue=input_queue,
         stop_event=stop_event,
         reset_event=reset_event

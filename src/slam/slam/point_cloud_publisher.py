@@ -1,4 +1,5 @@
-import time
+import asyncio
+import os
 
 import rosbag2_py
 from rclpy.node import Node
@@ -11,6 +12,7 @@ from std_srvs.srv import Trigger
 import sensor_msgs_py.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
 import numpy as np
+from scripts.paths import PATH_TO_ROSBAGS, generate_unique_bag_name
 
 
 class PointCloudPublisher(Node):
@@ -34,9 +36,45 @@ class PointCloudPublisher(Node):
 
         self.save_service = self.create_service(Trigger, 'save_global_map',
                                                 self.save_map_callback)
+        self.toggle_save_inputs = self.create_service(Trigger, 'toggle_save_inputs',
+                                                self.save_inputs_callback)
+        self.should_save_inputs = False
+
+        self.bag_dir_path = str(os.path.join(PATH_TO_ROSBAGS, generate_unique_bag_name(bag_prefix="rosbags")))
+        self.input_writer = None
+        self.global_writer = None
 
         self.get_logger().info(
-            "PointCloud publisher started with external global map reference.")
+            "PointCloud publisher started.")
+
+    def reset(self):
+        """
+        Resets the publisher node
+        """
+        self.global_map_ref = None
+        self.should_save_inputs = False
+        self.input_writer = None
+        self.global_writer = None
+        self.bag_dir_path = str(os.path.join(PATH_TO_ROSBAGS, generate_unique_bag_name(bag_prefix="rosbags")))
+
+    def setup_input_rosbags(self):
+        """
+        Resets the publisher node
+        """
+        input_bag_path = os.path.join(self.bag_dir_path, "input")
+        self.input_writer = rosbag2_py.SequentialWriter()
+        storage_options = rosbag2_py.StorageOptions(uri=input_bag_path,
+                                                    storage_id="sqlite3")
+        converter_options = rosbag2_py.ConverterOptions("", "")
+
+        self.input_writer.open(storage_options, converter_options)
+        self.input_writer.create_topic(
+            rosbag2_py.TopicMetadata(
+                name='/input_pointcloud',
+                type="sensor_msgs/msg/PointCloud2",
+                serialization_format="cdr"
+            )
+        )
 
     def publish_point_cloud(self, points_np: np.ndarray) -> None:
         """
@@ -46,7 +84,6 @@ class PointCloudPublisher(Node):
         :param points_np: The Nx3 numpy array of points to publish
 
         """
-
         # Create ROS2 message
         self.global_map_ref = points_np
         header = Header()
@@ -67,51 +104,80 @@ class PointCloudPublisher(Node):
 
         :return: The service response
         """
-        if not self.global_map_ref:
+        if self.global_map_ref is None:
             response.success = False
             response.message = "No global map available to save!"
             self.get_logger().warn(response.message)
             return response
 
-        self.save_point_cloud()
-        response.success = True
-        response.message = "Global map saved successfully."
-        return response
-
-    def save_point_cloud(self):
-        """
-        Saves the global map reference to a ROS bag file
-        """
-        bag_name = generate_unique_bag_name()
-        self.get_logger().info("Saving global map to rosbag...")
-
-        writer = rosbag2_py.SequentialWriter()
-        storage_options = rosbag2_py.StorageOptions(uri=bag_name,
+        global_bag_path = os.path.join(self.bag_dir_path, "global")
+        self.global_writer = rosbag2_py.SequentialWriter()
+        storage_options = rosbag2_py.StorageOptions(uri=global_bag_path,
                                                     storage_id="sqlite3")
         converter_options = rosbag2_py.ConverterOptions("", "")
 
-        writer.open(storage_options, converter_options)
-        writer.create_topic(
+        self.global_writer.open(storage_options, converter_options)
+        self.global_writer.create_topic(
             rosbag2_py.TopicMetadata(
                 name='/global_map',
                 type="sensor_msgs/msg/PointCloud2",
                 serialization_format="cdr"
             )
         )
+        self.save_point_cloud(writer=self.global_writer, points_np=self.global_map_ref, topic_name='/global_map')
+        self.get_logger().info(f"Global map saved to {self.bag_dir_path}.")
+
+        response.success = True
+        response.message = "Global map saved successfully."
+        return response
+
+    def save_inputs_callback(self, request, response) -> SrvTypeResponse:
+        """
+        Saves the current global map to a ROS bag file when requested.
+
+        :param request: The service request
+        :param response: The service response
+
+        :return: The service response
+        """
+
+        self.should_save_inputs = not self.should_save_inputs
+        if self.should_save_inputs:
+            self.setup_input_rosbags()
+        self.get_logger().info(f"Toggled saving inputs to {self.should_save_inputs}.")
+
+        response.success = True
+        response.message = f"Toggled saving inputs to {self.should_save_inputs}."
+        return response
+
+    def save_point_cloud(self, writer: rosbag2_py.SequentialWriter, points_np: np.ndarray, topic_name: str) -> None:
+        """
+        Saves the global map reference to a ROS bag file
+        """
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
 
-        cloud_msg = pc2.create_cloud_xyz32(header, self.global_map_ref)
+        cloud_msg = pc2.create_cloud_xyz32(header, points_np)
 
-        writer.write('/global_map', serialize_message(cloud_msg),
+        writer.write(topic_name, serialize_message(cloud_msg),
                      self.get_clock().now().nanoseconds)
-        self.get_logger().info(f"Global map saved to {bag_name}.")
+
+    async def save_input_pointcloud(self, points_np: np.ndarray):
+        """
+        Saves the input point cloud to a ROS bag file
+
+        :param points_np: The Nx3 numpy array of points to save
+        """
+        if not self.should_save_inputs:
+            return
+        self.get_logger().info("Saving input point cloud.")
+        await asyncio.to_thread(
+            self.save_point_cloud,
+            writer=self.input_writer,
+            points_np=points_np,
+            topic_name='/input_pointcloud'
+        )
 
 
-def generate_unique_bag_name(base_name="global_map_bag"):
-    """
-    Generates a unique bag file name by appending a timestamp.
-    """
-    timestamp = time.strftime("%Y%m%d_%H%M%S")  # Format: YYYYMMDD_HHMMSS
-    return f"{base_name}_{timestamp}"
+

@@ -12,7 +12,6 @@ from std_msgs.msg import String
 
 # OPTIONAL NEXT STEPS -- ADDING FUNCTIONALITY
 #TODO - speed up ICP
-#TODO - increase outlier detection for ICP -- too much noise
 #TODO - add algorithm for sequential icp and global icp
 #TODO - built in ros2 icp?
 #TODO - run on linux, fix readme
