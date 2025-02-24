@@ -44,12 +44,12 @@ Currently, the only tested configuration is on macOS with mamba and robostack.
    *This step will only work for when ROS2 Humble was installed using mamba and robostack.*
 
    Once you have setup your mamba env following the instructions at https://robostack.github.io/GettingStarted.html, you need to
-   install the required packages, run the following commands from the **root of the repository while in the mamba environment**:
+   install the required packages, run the following commands from the **root of the repository while in the ROS2 mamba environment**:
    ```bash
     mamba env update --file environment.yml --prune
    ```
 
-3. Build the ROS 2 workspace:
+3. Build the ROS2 workspace:
    ```bash
    colcon build
    ```
@@ -64,7 +64,8 @@ Currently, the only tested configuration is on macOS with mamba and robostack.
     ```
    
 5. Install the iPhone app:
-   You must have an Apple developer account to install the app on your iPhone along with Xcode
+
+   *You must have an Apple developer account to install the app on your iPhone along with Xcode*
 
    Open Xcode on your Mac.
    Open the Xcode project (from the .xcodeproj file in your local repo folder).
@@ -79,11 +80,11 @@ Currently, the only tested configuration is on macOS with mamba and robostack.
 iphone-lidar-slam/
 ├── src/                  # Source code for the SLAM system
 │   ├── slam/             # ROS2 node for ICP-based SLAM
-│   │   ├── config/       # Various configuration files including iphone lidar/camera parameters vital for calibration
+│   │   ├── config/       # Various configuration files including vital calibration config
 │   │   ├── launch/       # Launch files for the SLAM node
 │   │   ├── rosbags/      # Directory for storing rosbag files, both input and global maps
 │   │   ├── scripts/      # Python scripts for data processing, and other utilities
-│   │   ├── slam/         # Main ROS2 nodes which publish and subscribe to the various topics
+│   │   ├── slam/         # Main ROS2 nodes which publish and subscribe to various topics
 │   ├── archive/          # Old useless code i'm too scared to delete and too lazy to move to a different branch
 │   ├── misc/             # Miscellaneous files, including the writeup and other documents
 ├── lidar_ios_app/        # iOS app for capturing point clouds
@@ -100,9 +101,14 @@ each scan to ROS2 via the rosbridge suite. This app is mostly a prototype and is
 - Use the **Set IP** button to set the IP address of the computer running ROS2.
 - Use the **Start Scanning** button to start the scan. The app will start capturing pointclouds and sending them to ROS2.
 - Use the **Stop Scanning** button to stop the scan. The app will stop capturing pointclouds.
-- Use the **Clear DB** button to reset the global map. This will clear all pointclouds stored in RAM or in ROS2.
+- Use the **Clear DB** button to reset the global map. This will clear all pointclouds stored in the ROS2 nodes or topics fully resetting the system.
 - Use the **Save Map** button to save the global map to a rosbag file.
-- Use the **Save Inputs** button to save each scan the app has captured to a rosbag file. Use this when working on processing algorithms to test on the same input data repeatedly.
+- Use the **Save Inputs** button to save each scan the app captures to a rosbag file. 
+Use this when working on processing algorithms to test on the same input data repeatedly.
+Tap this button again to stop saving inputs.
+
+To save multiple global maps use the save map button then reset the system using the clear db button.
+This will save the global map to a rosbag file and reset the system so the next global map will save to a different file name.
 
 ---
 
