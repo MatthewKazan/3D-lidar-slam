@@ -14,8 +14,6 @@ localizing the iPhone in the environment and building a 3D map of the environmen
 3. [The iPhone app](#the-iphone-app)
 4. [Usage](#usage)
 5. [Algorithms](#algorithms)
-   - ICP-based SLAM
-   - Deep Learning Integration (Future work)
 6. [Adding Algorithms](#adding-algorithms)
 7. [Known Issues](#known-issues)
 
