@@ -97,12 +97,12 @@ iphone-lidar-slam/
 ## The iPhone app
 The iPhone app is in the lidar directory, its written in Swift and uses the ARKit library to capture pointclouds. The app uploads
 each scan to ROS2 via the rosbridge suite. This app is mostly a prototype and is not meant to look pretty.
-Use the **Set IP** button to set the IP address of the computer running ROS2.
-Use the **Start Scanning** button to start the scan. The app will start capturing pointclouds and sending them to ROS2.
-Use the **Stop Scanning** button to stop the scan. The app will stop capturing pointclouds.
-Use the **Clear DB** button to reset the global map. This will clear all pointclouds stored in RAM or in ROS2.
-Use the **Save Mamp** button to save the global map to a rosbag file.
-Use the **Save Inputs** button to save each scan the app has captured to a rosbag file. Use this when working on processing algorithms to test on the same input data repeatedly.
+- Use the **Set IP** button to set the IP address of the computer running ROS2.
+- Use the **Start Scanning** button to start the scan. The app will start capturing pointclouds and sending them to ROS2.
+- Use the **Stop Scanning** button to stop the scan. The app will stop capturing pointclouds.
+- Use the **Clear DB** button to reset the global map. This will clear all pointclouds stored in RAM or in ROS2.
+- Use the **Save Mamp** button to save the global map to a rosbag file.
+- Use the **Save Inputs** button to save each scan the app has captured to a rosbag file. Use this when working on processing algorithms to test on the same input data repeatedly.
 
 ---
 
