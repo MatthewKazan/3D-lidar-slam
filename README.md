@@ -40,7 +40,7 @@ Currently, the only tested configuration is on macOS with mamba and robostack.
    ```
 
 2. Install the required dependencies:
-3. 
+
    *This step will only work for when ROS2 Humble was installed using mamba and robostack.*
 
    Once you have setup your mamba env following the instructions at https://robostack.github.io/GettingStarted.html, you need to
