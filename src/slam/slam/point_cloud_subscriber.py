@@ -10,21 +10,6 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
 
-# OPTIONAL NEXT STEPS -- ADDING FUNCTIONALITY
-#TODO - speed up ICP
-#TODO - add algorithm for sequential icp and global icp
-#TODO - built in ros2 icp?
-#TODO - run on linux, fix readme
-#TODO - maybe gtsam?
-
-### DEEP LEARNING TO DO LIST:
-#TODO - figure out how to use deep learning for this
-#TODO - loop closure detection, feature extraction, etc.
-#TODO - deep learning + icp hybrid approach and pure deep learning slam algorithm
-
-# FAR OFF FUTURE FEATURES - MAYBE
-#TODO - have phone display global map
-
 
 class PointClouds2Subscriber(Node):
     """

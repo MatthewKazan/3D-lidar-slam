@@ -1,0 +1,20 @@
+name: ros_env
+channels:
+  - conda-forge
+  - robostack-staging
+dependencies:
+  - catkin_tools
+  - cmake
+  - colcon-common-extensions
+  - compilers
+  - flask
+  - make
+  - ninja
+  - notebook
+  - open3d
+  - pandas
+  - pkg-config
+  - python=3.11
+  - ros-humble-desktop
+  - ros-humble-rosbridge-suite
+  - rosdep
