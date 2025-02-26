@@ -10,12 +10,13 @@ import os
 import threading
 import time
 from abc import ABC, abstractmethod
-from queue import Queue
 
 import numpy as np
 import open3d as o3d
+import rclpy.logging
 import yaml
-from slam.point_cloud_publisher import PointCloudPublisher
+
+from scripts.data_transfer import DataTransfer
 
 
 class ProcessPointClouds(ABC):
@@ -26,20 +27,18 @@ class ProcessPointClouds(ABC):
 
     def __init__(self,
         config_path: str,
-        stop_event: multiprocessing.Event,
-        input_queue: Queue,
         reset_event: multiprocessing.Event,
-        publisher_node: PointCloudPublisher,
+        data_transfer: DataTransfer,
+        logger=None,
     ):
         """
         Initialize the point cloud processor with settings from a YAML file.
         Should be run in a separate process since it's a long-running task.
 
         :param config_path: Path to the YAML configuration file.
-        :param input_queue: Thread-safe queue to get the latest point cloud map.
-        :param publisher_node: Publisher node to publish the global map after each processed point cloud.
         :param reset_event: Thread-safe event triggered on database reset.
         """
+        self.logger = logger
 
         # Declare instance variables with default values
         self.WIDTH = None
@@ -57,20 +56,15 @@ class ProcessPointClouds(ABC):
         self.global_map = None
         self.point_clouds_in_map = 0
 
+        self.data_transfer = data_transfer
+
         self.previous_transformation = [np.identity(4)]
 
         self.start_time = None
-        self.input_queue = input_queue
-        self.stop_event = stop_event
         self.reset_event = reset_event
-        self.publisher_node = publisher_node
 
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
-        self.loop_thread = threading.Thread(target=self.loop.run_forever, daemon=True)
-        self.loop_thread.start()
 
-        self.publisher_node.get_logger().info(f"Using {self.__class__.__name__} for point cloud processing")
+        self.logger.info(f"Using {self.__class__.__name__} for point cloud processing")
 
     def load_config(self, config_path: str) -> None:
         """
@@ -99,7 +93,7 @@ class ProcessPointClouds(ABC):
         self.cx *= scale_x
         self.cy *= scale_y
 
-        print(
+        self.logger.info(
             f"Loaded camera parameters: WIDTH={self.WIDTH}, HEIGHT={self.HEIGHT}, fx={self.fx}, fy={self.fy}")
 
 
@@ -121,54 +115,34 @@ class ProcessPointClouds(ABC):
         return points_3d
 
 
-    def run(self):
+    def process(self) -> None:
         """
-        Main loop to process point clouds.
+        Main fn to process point clouds each loop iteration.
         """
-        while not self.stop_event.is_set():
-            if self.reset_event.is_set():
-                self.reset()
-            # Get the latest point cloud from the database
-            if self.input_queue.empty():
-                time.sleep(0.1)
-                continue
-            point_cloud_pixel = self.input_queue.get()
-            asyncio.run_coroutine_threadsafe(
-                self.publisher_node.save_input_pointcloud(point_cloud_pixel),
-                self.loop
-            )
+        point_cloud_pixel = self.data_transfer.pixel_depth_map_queue.get()
 
-            self.publisher_node.get_logger().debug(f"{len(point_cloud_pixel)} points received from queue")
-            # Process the point cloud
-            if point_cloud_pixel is not None:
-                self.publisher_node.get_logger().info(
-                    f"pcs processed so far: {self.point_clouds_in_map}")
+        self.logger.debug(f"{len(point_cloud_pixel)} points received from queue")
+        # Process the point cloud
+        if point_cloud_pixel is not None:
+            self.logger.info(
+                f"pcs processed so far: {self.point_clouds_in_map}")
 
-                point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
-                del point_cloud_pixel
-                self.construct_global_map(point_cloud_3d)
-
-                # self.publisher_node.publish_point_cloud(self.downsample_global_map())
-                self.publisher_node.publish_point_cloud(self.global_map)
-                self.point_clouds_in_map += 1
-
-        self.publisher_node.get_logger().info("shutting down processing loop")
+            point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
+            del point_cloud_pixel
+            self.construct_global_map(point_cloud_3d)
+            self.point_clouds_in_map += 1
 
     def reset(self) -> None:
         """
         Reset the point cloud processor.
         """
+        self.logger.info("Resetting processor")
         self.global_map = None
         self.point_clouds_in_map = 0
         self.previous_transformation = [np.identity(4)]
         self.start_time = None
-        self.publisher_node.publish_point_cloud(np.array([[0,0,0]]))
-        self.publisher_node.reset()
-
         self.reset_event.clear()
         time.sleep(1)
-        while not self.input_queue.empty():
-            self.input_queue.get(block=False)
 
     @abstractmethod
     def construct_global_map(self, points: np.array) -> None:
@@ -200,26 +174,21 @@ class ICPProcessor(ProcessPointClouds):
 
     def __init__(self,
         config_path: str,
-        publisher_node: PointCloudPublisher,
-        input_queue: Queue,
         reset_event: multiprocessing.Event,
-        stop_event: multiprocessing.Event,
+        data_transfer: DataTransfer,
     ):
         """
         Initialize the point cloud processor with settings from a YAML file.
         Should be run in a separate process since it's a long-running task.
 
         :param config_path: Path to the YAML configuration file.
-        :param input_queue: Thread-safe queue to get the latest point cloud map.
-        :param publisher_node: Publisher node to publish the global map after each processed point cloud.
         :param reset_event: Thread-safe event triggered on database reset.
         """
         super().__init__(
-            config_path=config_path,
-            publisher_node=publisher_node,
-            stop_event=stop_event,
-            input_queue=input_queue,
-            reset_event=reset_event
+            config_path,
+            reset_event,
+            data_transfer,
+            rclpy.logging.get_logger("icp processor")
         )
 
     def construct_global_map(self, points: np.array) -> None:
@@ -308,7 +277,7 @@ class ICPProcessor(ProcessPointClouds):
         # Pulled all of these numbers out of nowhere
         if self.point_clouds_in_map < 10:
             return
-        if self.point_clouds_in_map % 10 == 0 or self.input_queue.empty():
+        if self.point_clouds_in_map % 10 == 0 or self.data_transfer.pixel_depth_map_queue.empty():
             point_cloud_map = o3d.geometry.PointCloud()
             point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
             point_cloud_map: o3d.geometry.PointCloud = point_cloud_map.voxel_down_sample(
@@ -340,26 +309,3 @@ class ICPProcessor(ProcessPointClouds):
         # point_cloud = point_cloud.voxel_down_sample(0.2)
         # self.global_map = np.asarray(point_cloud.points)
         return point_cloud.points
-
-
-def get_processor(
-    algorithm: str,
-    config_path: str,
-    queue: multiprocessing.Queue,
-    reset_event: multiprocessing.Event,
-    stop_event: multiprocessing.Event,
-    publisher_node: PointCloudPublisher,
-) -> ProcessPointClouds:
-    """
-    Factory function to get the appropriate point cloud processor class based on the algorithm.
-    """
-    if algorithm == 'icp':
-        return ICPProcessor(
-            config_path=config_path,
-            publisher_node=publisher_node,
-            stop_event=stop_event,
-            input_queue=queue,
-            reset_event=reset_event
-        )
-    else:
-        raise ValueError(f"Unknown algorithm: {algorithm}")

@@ -35,7 +35,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     var scanningTimer: Timer?
     var socket: WebSocket?
     var isConnected = false  // ✅ Track WebSocket connection status
-    var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
+    var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? "172.20.10.7"
     var num_scans = 0
 
     override func viewDidLoad() {
@@ -47,8 +47,6 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         arView.session.delegate = self
 
 
-        
-        if selectedIP.isEmpty { return }
         self.setIPAddress(ip: selectedIP)
     }
 
@@ -193,7 +191,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     func sendResetRequest() {
         self.setIPAddress(ip: selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.publishToTopic(msg: ["data": ""], topic: "/reset")
+            self.sendServiceRequest(service: "/reset")
         }
     }
     
