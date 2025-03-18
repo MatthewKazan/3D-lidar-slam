@@ -7,13 +7,14 @@ package_name = 'slam'
 setup(
     name=package_name,
     version='1.0.0',
-    packages=find_packages(),
+    packages=find_packages(),  # Registers scripts as a Python package
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/slam.launch.py']),
         ('share/' + package_name + '/config', glob('config/*')),
         ('share/' + package_name + '/scripts', glob('scripts/*.py')),
+        ("share/" + package_name + "/scripts/point_cloud_processors", glob("scripts/point_cloud_processors/*.py"))
 
     ],
     install_requires=['setuptools', 'rclpy', 'sensor_msgs'],

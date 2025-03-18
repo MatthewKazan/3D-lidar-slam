@@ -1,12 +1,12 @@
 import multiprocessing
-import queue
 import time
 
 import rclpy.logging
 
 from scripts.algorithm_enum import AlgorithmType
 from scripts.data_transfer import DataTransfer
-from scripts.process_point_clouds import ICPProcessor
+import scripts.point_cloud_processors
+from scripts.point_cloud_processors import ICPProcessor
 
 
 class ProcessPointCloudsHandler:
@@ -28,7 +28,7 @@ class ProcessPointCloudsHandler:
         self.config_path = config_path
 
         self.algorithm = algorithm
-        self.processor = None#self.set_algorithm(algorithm)
+        self.processor = None
 
         self.processor_thread = multiprocessing.Process(target=self.process_loop)
 
@@ -50,14 +50,13 @@ class ProcessPointCloudsHandler:
                     time.sleep(0.1)
                     continue
                 self.processor.process()
-                self.data_transfer.global_map_queue.put(self.processor.global_map)
+                with self.data_transfer.global_map_lock:
+                    self.data_transfer.global_map_queue.put(self.processor.global_map)
 
         except KeyboardInterrupt:
             logger.info("Stopped by user")
 
         # self.logger.info("shutting down processing loop")
-
-
 
     def start(self) -> None:
         """
@@ -97,3 +96,7 @@ class ProcessPointCloudsHandler:
         print(
             f"Switched to algorithm: {self.algorithm.value}")  # Logging for debug
         return processor
+
+
+if __name__ == "__main__":
+    pass

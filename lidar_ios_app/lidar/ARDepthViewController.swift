@@ -47,7 +47,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         arView.session.delegate = self
 
 
-        self.setIPAddress(ip: selectedIP)
+        self.setIPAddress(ip: self.selectedIP)
     }
 
     // MARK: - **Scanning Control Methods**
@@ -55,7 +55,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     /// Starts LiDAR scanning and begins sending point cloud data.
     func startScanning() {
         if isScanning { return }
-        self.setIPAddress(ip: selectedIP)
+        self.setIPAddress(ip: self.selectedIP)
         // Enable LiDAR depth data collection
         let configuration = ARWorldTrackingConfiguration()
         configuration.frameSemantics = .sceneDepth
@@ -160,10 +160,10 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     /// Establishes a WebSocket connection to the **ROS2 bridge server**.
     func setIPAddress(ip: String) {
         print("Setting new IP: \(ip)")
-        selectedIP = ip
-        socket?.disconnect()  // ✅ Ensure clean disconnect before reconnecting
+        self.selectedIP = ip
+        self.socket?.disconnect()  // ✅ Ensure clean disconnect before reconnecting
         
-        var request = URLRequest(url: URL(string: "ws://\(selectedIP):9090")!)
+        var request = URLRequest(url: URL(string: "ws://\(self.selectedIP):9090")!)
         request.timeoutInterval = 1
         // A lot of the following probably isn't necessary but the websocket has been finnicky so im not touching it
         // ✅ Force WebSocket to send packets immediately (disable Nagle’s Algorithm)
@@ -177,11 +177,11 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         // ✅ Prevent WiFi from putting the connection to sleep
         request.setValue("true", forHTTPHeaderField: "WebSocket-Stay-Awake")
 
-        socket = WebSocket(request: request)
-        socket?.delegate = self  // ✅ Ensure WebSocket delegate is set
+        self.socket = WebSocket(request: request)
+        self.socket?.delegate = self  // ✅ Ensure WebSocket delegate is set
         self.isConnected = false
-        socket?.connect()
-        socket?.request.setValue("8.8.8.8", forHTTPHeaderField: "DNS-Resolver")
+        self.socket?.connect()
+        self.socket?.request.setValue("8.8.8.8", forHTTPHeaderField: "DNS-Resolver")
 
     }
 
@@ -189,7 +189,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         
     /// Sends a request to **reset the ROS2 system** via WebSocket.
     func sendResetRequest() {
-        self.setIPAddress(ip: selectedIP)
+        self.setIPAddress(ip: self.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.sendServiceRequest(service: "/reset")
         }
@@ -197,13 +197,13 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     
     /// Sends a request to **save the current global map** in ROS2.
     func sendSaveRequest() {
-        self.setIPAddress(ip: selectedIP)
+        self.setIPAddress(ip: self.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.sendServiceRequest(service: "/save_global_map")
         }
     }
     func sendToggleSaveInputRequest() {
-        self.setIPAddress(ip: selectedIP)
+        self.setIPAddress(ip: self.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.sendServiceRequest(service: "/toggle_save_inputs")
         }
@@ -214,7 +214,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         switch event {
         case .connected(_):
             isConnected = true
-            print("✅ WebSocket Connected to \(selectedIP)")
+            print("✅ WebSocket Connected to \(self.selectedIP)")
 
         case .disconnected(let reason, let code):
             isConnected = false

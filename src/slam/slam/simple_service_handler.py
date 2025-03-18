@@ -40,8 +40,6 @@ class ResetServiceMapping(ServiceMapping):
         return response
 
 
-
-
 class SimpleServiceHandler(Node):
     """
     Class to receive and delegate simple service requests

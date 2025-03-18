@@ -1,10 +1,11 @@
 import SwiftUI
 
+let arViewContainer = ARViewContainer()
+
 struct ContentView: View {
     @State private var isScanning = false
     @State private var isShowingMenu = false
     @State private var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
-    let arViewContainer = ARViewContainer()
     
     var body: some View {
         ZStack {
@@ -110,6 +111,8 @@ struct SideMenu: View {
                 Button("Save") {
                     UserDefaults.standard.set(selectedIP, forKey: "SavedIP")
                     isShowing = false
+                    arViewContainer.updateIPAddress(selectedIP)
+
                 }
                 .padding()
                 .background(Color.blue)

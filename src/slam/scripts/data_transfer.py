@@ -1,5 +1,4 @@
 import multiprocessing
-import queue
 
 
 class DataTransfer:
@@ -13,6 +12,7 @@ class DataTransfer:
         """
         self.pixel_depth_map_queue = multiprocessing.Queue()
         self.global_map_queue = multiprocessing.Queue(1)
+        self.global_map_lock = multiprocessing.Lock()
 
     def reset(self):
         """
@@ -20,6 +20,10 @@ class DataTransfer:
         """
         while not self.pixel_depth_map_queue.empty():
             self.pixel_depth_map_queue.get()
-        if not self.global_map_queue.empty():
-            self.global_map_queue.get()
+        with self.global_map_lock:
+            if not self.global_map_queue.empty():
+                self.global_map_queue.get()
 
+
+if __name__ == "__main__":
+    pass

@@ -115,9 +115,10 @@ class PointCloudPublisher(GenericHandler):
         """
         Check if there is new point cloud data in the queue and publish it.
         """
-        if not self.data_transfer.global_map_queue.empty():
-            self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
-            if len(self.global_map_ref) > 0:
-                self.publish_point_cloud(self.global_map_ref)
+        with self.data_transfer.global_map_lock:
+            if not self.data_transfer.global_map_queue.empty():
+                self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
+                if len(self.global_map_ref) > 0:
+                    self.publish_point_cloud(self.global_map_ref)
 
 

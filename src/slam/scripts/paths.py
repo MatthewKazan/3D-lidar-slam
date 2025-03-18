@@ -18,3 +18,7 @@ def generate_unique_bag_name(bag_prefix="global_map_bag") -> str:
     """
     timestamp = time.strftime("%Y%m%d_%H%M%S")  # Format: YYYYMMDD_HHMMSS
     return f"{bag_prefix}_{timestamp}"
+
+
+if __name__ == "__main__":
+    pass
