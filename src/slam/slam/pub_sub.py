@@ -1,20 +1,18 @@
 import multiprocessing
 import os
-import queue
-import threading
 
 import rclpy
-from slam.output_handler import PointCloudPublisher
-from slam.input_handler import PointClouds2Subscriber
+from slam.output_data_handler import PointCloudPublisher
+from slam.input_data_handler import PointClouds2Subscriber
 
 from scripts.paths import PATH_TO_CONFIG
 
 from scripts.data_transfer import DataTransfer
-from scripts.process_pc_manager import ProcessPointCloudsHandler
+from scripts.process_pc_manager import ProcessPointCloudsHandlerNode
 from slam.simple_service_handler import ResetServiceMapping, \
     ServiceMapping, SimpleServiceHandler
-
-
+from std_srvs.srv import Trigger
+from  custom_interfaces.srv import SetAlgorithm
 
 
 def main():
@@ -24,6 +22,9 @@ def main():
     os.environ["RMW_IMPLEMENTATION"] = "rmw_cyclonedds_cpp"
     os.environ["CYCLONEDDS_URI"] = ""
     os.environ["RMW_FASTRTPS_USE_UDP"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+
+
     # End weirdness
 
     rclpy.init()
@@ -38,41 +39,46 @@ def main():
     subscriber_node = PointClouds2Subscriber(data_transfer)
     publisher_node = PointCloudPublisher(data_transfer)
 
-    service_mappings = [
-        ResetServiceMapping([subscriber_node, publisher_node, data_transfer], reset_event),
-        ServiceMapping("/save_global_map", publisher_node.save_map_callback),
-        ServiceMapping("/toggle_save_inputs", subscriber_node.save_inputs_callback),
-    ]
-    service_handler = SimpleServiceHandler(service_mappings)
-
-
     algorithm = subscriber_node.declare_parameter('algorithm', 'icp').value.lower()
     camera_config_name = subscriber_node.declare_parameter('config',
-                                                'lidar_config.yaml').value.lower()
+                                                'config.yaml').value.lower()
     config_path = os.path.join(
         PATH_TO_CONFIG,
         camera_config_name
     )
     # Start processor in a separate thread
-    processor_handler = ProcessPointCloudsHandler(
+    processor_handler = ProcessPointCloudsHandlerNode(
         algorithm=str(algorithm),
         config_path=str(config_path),
         data_transfer=data_transfer,
         stop_event=stop_event,
         reset_event=reset_event
     )
+
+    service_mappings = [
+        ResetServiceMapping([subscriber_node, publisher_node, data_transfer], reset_event),
+        ServiceMapping("/save_global_map", Trigger, publisher_node.save_map_callback),
+        ServiceMapping("/toggle_save_inputs", Trigger, subscriber_node.save_inputs_callback),
+        ServiceMapping("/set_algorithm", SetAlgorithm, processor_handler.set_algorithm),
+    ]
+    service_handler = SimpleServiceHandler(service_mappings)
+
+    nodes = [subscriber_node, publisher_node, processor_handler, service_handler]
+
     executor = rclpy.executors.MultiThreadedExecutor()
-    executor.add_node(subscriber_node)
-    executor.add_node(publisher_node)
-    executor.add_node(service_handler)
+    for node in nodes:
+        node.get_logger().info(f"Adding {node.get_name()} to executor")
+        executor.add_node(node)
+
     try:
-        processor_handler.start()
         executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        processor_handler.stop()
         if rclpy.ok():
+            for node in nodes:
+                node.get_logger().info(f"Shutting down {node.get_name()}")
+                node.destroy_node()
             rclpy.shutdown()
 
 if __name__ == '__main__':

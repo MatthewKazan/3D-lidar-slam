@@ -7,3 +7,6 @@ install/
 lidar/lidar.xcodeproj/project.xcworkspace/xcshareddata/
 lidar_server
 log/
+src/libs/libs/**
+
+!src/libs/libs/__init__.py

@@ -48,14 +48,6 @@ class ICPProcessor(ProcessPointClouds):
 
         :return: The new point cloud transformed to align with the global map
         """
-
-        # If this is the first point cloud, set it as the global map
-        if self.point_clouds_in_map == 0:
-            self.point_clouds_in_map += 1
-            self.global_map = points
-            return
-
-        # Do some basic point cloud processing, dont know if this is necessary
         point_cloud = o3d.geometry.PointCloud()
         point_cloud.points = o3d.utility.Vector3dVector(points)
         # Can this be done quickly?

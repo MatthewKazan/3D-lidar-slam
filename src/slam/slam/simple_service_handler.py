@@ -1,19 +1,21 @@
 import multiprocessing
-import time
-from typing import List, Callable
+from typing import List, Callable, Type, Generic, TypeVar, Any
 
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
-class ServiceMapping:
+ServiceT = TypeVar("ServiceT")
+
+class ServiceMapping(Generic[ServiceT]):
     """
     Map a service name to a specific instance of its callback functions.
     """
-    def __init__(self, service_name: str, callback: Callable[[Trigger.Request, Trigger.Response], Trigger.Response]):
+    def __init__(self, service_name: str, service_type: Type[ServiceT], callback: Callable[[Any, Any], Any]):
         self.service_name = service_name
         self.callback_fn = callback
+        self.service_type = service_type
 
-    def callback(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+    def callback(self, request, response) -> Any:
         return self.callback_fn(request, response)
 
 class ResetServiceMapping(ServiceMapping):
@@ -21,15 +23,18 @@ class ResetServiceMapping(ServiceMapping):
     Map a reset to a specific instance of its callback functions.
     """
     def __init__(self, objs_to_reset, event: multiprocessing.Event):
-        super().__init__("/reset", self.callback)
+        super().__init__("/reset", Trigger, self.callback)
         self.objs_to_reset = objs_to_reset
         self.event = event
 
     def callback(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """
         Callback function to handle reset requests.
+
         :param request: The request object.
         :param response: The response object.
+
+        :return: The response object with success status and message.
         """
         self.event.set()
         for obj in self.objs_to_reset:
@@ -53,22 +58,4 @@ class SimpleServiceHandler(Node):
         super().__init__('simple_service_handler')
         self.service_callback_map = {}
         for service_callback in services:
-            self.create_service(Trigger, service_callback.service_name, service_callback.callback)
-
-
-    def service_callback(self, request, response, service_name):
-        """
-        Callback function to handle service requests.
-        :param request: The request object.
-        :param response: The response object.
-        """
-
-        if service_name in self.service_callback_map:
-            callback = self.service_callback_map[service_name]
-            response = callback(request, response)
-        else:
-            self.get_logger().error(f"Service {service_name} not found.")
-            response.success = False
-            response.message = f"Service {service_name} not found."
-
-        return response
+            self.create_service(service_callback.service_type, service_callback.service_name, service_callback.callback)

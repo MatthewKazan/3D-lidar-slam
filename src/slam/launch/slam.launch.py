@@ -1,7 +1,11 @@
+import os
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+os.environ["OMP_NUM_THREADS"] = "1"
 
 
 def launch_setup(context, *args, **kwargs):
@@ -24,6 +28,7 @@ def launch_setup(context, *args, **kwargs):
             package='slam',
             executable='pub_sub',
             name='slam_pub_sub',
+            output='screen',
             parameters=[{"algorithm": LaunchConfiguration('algorithm'), "config": LaunchConfiguration('config')}],
 
         ),
@@ -69,11 +74,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'algorithm',
             default_value='icp',
-            description='SLAM algorithm to use (icp or ...)'
+            description='SLAM algorithm to use (icp or dgr)'
         ),
         DeclareLaunchArgument(
             'config',
-            default_value='lidar_config.yaml',
+            default_value='config.yaml',
             description='Configuration file name for the camera that collected the data'
         ),
         OpaqueFunction(function=launch_setup),

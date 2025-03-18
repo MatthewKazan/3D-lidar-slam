@@ -1,0 +1,11 @@
+camera:
+  width: 256
+  height: 192
+  ref_width: 1920
+  ref_height: 1440
+  fx: 1342.9849
+  fy: 1342.9849
+  cx: 965.6142
+  cy: 717.95435
+dgr_config:
+  weights: "/Users/mattkazan/PrivateFiles/NortheasternClasses/Year5/EECE5550/FinalProject/final_project/src/libs/libs/DeepGlobalRegistration/ResUNetBN2C-feat32-3dmatch-v0.05.pth"

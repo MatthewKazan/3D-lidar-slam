@@ -40,6 +40,7 @@ class ProcessPointClouds(ABC):
         self.cy = None
 
         # Load YAML Configuration
+        self.config = None
         self.load_config(config_path)
 
         self.global_map = None
@@ -66,17 +67,17 @@ class ProcessPointClouds(ABC):
         :param config_path: Path to the YAML configuration file.
         """
         with open(config_path, 'r') as file:
-            config = yaml.safe_load(file)
+            self.config = yaml.safe_load(file)
 
         # Camera Parameters
-        self.WIDTH = config['camera']['width']
-        self.HEIGHT = config['camera']['height']
-        self.ref_width = config['camera']['ref_width']
-        self.ref_height = config['camera']['ref_height']
-        self.fx = config['camera']['fx']
-        self.fy = config['camera']['fy']
-        self.cx = config['camera']['cx']
-        self.cy = config['camera']['cy']
+        self.WIDTH = self.config['camera']['width']
+        self.HEIGHT = self.config['camera']['height']
+        self.ref_width = self.config['camera']['ref_width']
+        self.ref_height = self.config['camera']['ref_height']
+        self.fx = self.config['camera']['fx']
+        self.fy = self.config['camera']['fy']
+        self.cx = self.config['camera']['cx']
+        self.cy = self.config['camera']['cy']
 
         # Scale intrinsic parameters to the new resolution
         scale_x = self.WIDTH / self.ref_width
@@ -122,6 +123,13 @@ class ProcessPointClouds(ABC):
 
             point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
             del point_cloud_pixel
+
+            # If this is the first point cloud, set it as the global map
+            if self.point_clouds_in_map == 0:
+                self.point_clouds_in_map += 1
+                self.global_map = point_cloud_3d
+                return
+
             self.construct_global_map(point_cloud_3d)
             self.point_clouds_in_map += 1
 

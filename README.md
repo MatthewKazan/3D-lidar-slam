@@ -51,26 +51,67 @@ Currently, the only tested configuration is on macOS with mamba and robostack.
 
 3. Build the ROS2 workspace:
    ```bash
-   colcon build
+   colcon build --symlink-install
    ```
 
-4. Set up environment:
-   ```bash
-   source install/setup.bash
-   ```
-    or
-    ```bash
-    source install/setup.zsh
-    ```
+   4. Set up environment:
+      ```bash
+      source install/setup.bash
+      ```
+       or
+       ```zsh
+       source install/setup.zsh
+       ```
    
-5. Install the iPhone app:
+      5. Install the iPhone app:
 
-   *You must have an Apple developer account to install the app on your iPhone along with Xcode*
+         *You must have an Apple developer account to install the app on your iPhone along with Xcode*
 
-   Open Xcode on your Mac.
-   Open the Xcode project (from the .xcodeproj file in your local repo folder).
-   In Xcode, choose File > Open, and select your project file.
-   Then follow [these instructions](https://codewithchris.com/deploy-your-app-on-an-iphone/) to install and run the app on your iPhone.
+         Open Xcode on your Mac.
+         Open the Xcode project (from the .xcodeproj file in your local repo folder).
+         In Xcode, choose File > Open, and select your project file.
+         Then follow [these instructions](https://codewithchris.com/deploy-your-app-on-an-iphone/) to install and run the app on your iPhone.
+
+         6. Install DGR and Minkowski Engine and ensure their dpendencies are installed. 
+            Follow the instructions in their respective repositories to install them. 
+            For Mac they are annoying, requires manually editing the `setup.py` files in Minkowski 
+            to ensure the clang path is correct. Then DGR dependencies are also annoying to install,
+            need to manually install `easydict` with conda/mamba and `open3d==0.17.0` with pip.
+
+            To use the demo for DGR on mac you need to update the DeepGlobalRegistration call to add a `device` argument
+            which is 'cpu' for mac. The default is 'cuda' which will throw an error on mac as it doesn't have a GPU.
+
+            Setup Minkowski for Mac with
+            ```bash
+            python setup.py install --cpu_only
+            ```
+            If it fails with linker errors, its because of weird conflicting build env variables between pytorch and Minkowski: 
+            uninstall pytorch then:
+            ```bash
+               mamba install -c conda-forge "pytorch=*"  
+               brew install libomp
+               brew install openblas
+               export LDFLAGS="-L/opt/homebrew/opt/openblas/lib"                
+               export CPPFLAGS="-I/opt/homebrew/opt/openblas/include"
+               export CXXFLAGS="-Xclang -fopenmp"  
+               export CXX=/opt/homebrew/opt/llvm/bin/clang++                    
+               export CC=/opt/homebrew/opt/llvm/bin/clang
+               export CMAKE_CXX_COMPILER="/opt/homebrew/opt/llvm/bin/clang++"
+               export CMAKE_C_COMPILER="/opt/homebrew/opt/llvm/bin/clang"
+            ```   
+            No idea what portion of that is actually necessary, but it worked for me. If you already 
+            have libomp and openblas installed, reinstall them.
+            
+            If you want to use the DGR demo, you need to run it once, it will have after redkitchen_010.ply
+            kill it, then manually download the weights from the [here](https://node1.chrischoy.org/data/publications/fcgf/2019-08-16_19-21-47.pth)
+            and place it in the same dir as the redkitchen_010.ply file. 
+            Then run the demo again and it might work.
+
+            If it hangs after Setting voxel size, run ```bash export OMP_NUM_THREADS=1``` and try again.
+
+         8. If colcon build fails, reinstall pytorch with the same command as above
+
+      
 
 ---
 
@@ -118,7 +159,7 @@ To build, and launch the ROS2 SLAM system with the visualizer
 ```bash
     colcon build --symlink-install
     source install/setup.<bash or zsh>
-    ros2 launch slam slam.launch.py launch_rviz:=true config:=lidar_config.yaml
+    ros2 launch slam slam.launch.py launch_rviz:=true config:=config.yaml
 ```
 As scans come in from the iPhone app, the SLAM system will process them and publish the global map 
 to the /global_map topic. 
@@ -147,7 +188,7 @@ Launch the ROS2 system as normal
 ```bash
     colcon build --symlink-install
     source install/setup.<bash or zsh>
-    ros2 launch slam slam.launch.py launch_rviz:=true config:=lidar_config.yaml
+    ros2 launch slam slam.launch.py launch_rviz:=true config:=config.yaml
 ```
 Then in a new terminal, run the following command to play the rosbag file:
 ```bash

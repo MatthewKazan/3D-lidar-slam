@@ -14,7 +14,7 @@ from std_msgs.msg import String
 
 from scripts.data_transfer import DataTransfer
 from scripts.paths import PATH_TO_ROSBAGS, generate_unique_bag_name
-from slam.generic_handler import GenericHandler
+from slam.generic_data_handler import GenericHandler
 
 
 class PointClouds2Subscriber(GenericHandler):

@@ -1,17 +1,21 @@
 import multiprocessing
 import time
+from typing import Union
 
 import rclpy.logging
+from rclpy.node import Node
 
 from scripts.algorithm_enum import AlgorithmType
 from scripts.data_transfer import DataTransfer
-import scripts.point_cloud_processors
 from scripts.point_cloud_processors import ICPProcessor
+from scripts.point_cloud_processors import DGRProcessor
+from  custom_interfaces.srv import SetAlgorithm
+from rclpy.service import SrvTypeResponse
 
 
-class ProcessPointCloudsHandler:
+class ProcessPointCloudsHandlerNode(Node):
     """
-    Class to abstract multiprocessing for point cloud processing.
+    A ROS 2 node that manages the point cloud processing thread.
     """
 
     def __init__(self,
@@ -21,6 +25,51 @@ class ProcessPointCloudsHandler:
         stop_event: multiprocessing.Event,
         reset_event: multiprocessing.Event,
     ):
+        super().__init__('process_point_clouds_handler')
+        self.algorithm = multiprocessing.Manager().Value('str', algorithm)
+        self.processor_handler = ProcessPointCloudsHandler(
+            algorithm=self.algorithm,
+            config_path=config_path,
+            data_transfer=data_transfer,
+            stop_event=stop_event,
+            reset_event=reset_event,
+        )
+        self.processor_handler.start()
+
+    def set_algorithm(self, request, response) -> SrvTypeResponse:
+        """
+        Service callback to change the processing algorithm.
+        """
+        self.get_logger().info(f"Received request to set algorithm to {request.algorithm}")
+        self.algorithm.set(request.algorithm)
+
+        response.success = True
+        response.message = f"Algorithm set to {request.algorithm}"
+        self.get_logger().info(response.message)
+        return response
+
+    def destroy_node(self):
+        """
+        Override the destroy_node method to stop the processor handler before destroying the node.
+        """
+        self.processor_handler.stop()
+        super().destroy_node()
+
+
+
+class ProcessPointCloudsHandler:
+    """
+    Class to abstract multiprocessing for point cloud processing.
+    """
+
+    def __init__(self,
+        algorithm: multiprocessing.Value,
+        config_path: str,
+        data_transfer: DataTransfer,
+        stop_event: multiprocessing.Event,
+        reset_event: multiprocessing.Event,
+    ):
+
         self.data_transfer = data_transfer
 
         self.stop_event = stop_event
@@ -28,6 +77,7 @@ class ProcessPointCloudsHandler:
         self.config_path = config_path
 
         self.algorithm = algorithm
+        # Can't define self.processor here because it is unpicklable, breaks multiprocessing
         self.processor = None
 
         self.processor_thread = multiprocessing.Process(target=self.process_loop)
@@ -36,27 +86,36 @@ class ProcessPointCloudsHandler:
         """
         Start the point cloud processing thread. Should be run in a separate process.
         """
-        logger = rclpy.logging.get_logger("processing_manager")
-
         try:
-            self.processor = self.set_algorithm(self.algorithm)
+            self.processor = self.set_algorithm(self.algorithm.get())
+            cur_algorithm = self.algorithm.get()
 
             while not self.stop_event.is_set():
                 if self.reset_event.is_set():
-                    logger.info("Resetting processor")
+                    rclpy.logging.get_logger("processing_manager").info("Resetting processor")
                     self.processor.reset()
                     continue
+                if self.algorithm.get() != cur_algorithm:
+                    try:
+                        self.processor = self.set_algorithm(self.algorithm.get())
+                    except KeyError as e:
+                        rclpy.logging.get_logger("processing_manager").error(f"Error setting algorithm: {e}, reverting to previous algorithm {cur_algorithm}")
+                        self.algorithm.set(cur_algorithm)  # Revert to previous algorithm
+                        continue
+                    cur_algorithm = self.algorithm.get()
                 if self.data_transfer.pixel_depth_map_queue.empty():
                     time.sleep(0.1)
                     continue
+                start_time = time.time()
                 self.processor.process()
                 with self.data_transfer.global_map_lock:
                     self.data_transfer.global_map_queue.put(self.processor.global_map)
+                rclpy.logging.get_logger("processing_manager").info(f"Processing took {time.time() - start_time:.3f} seconds")
 
         except KeyboardInterrupt:
-            logger.info("Stopped by user")
+            rclpy.logging.get_logger("processing_manager").info("Stopped by user")
 
-        # self.logger.info("shutting down processing loop")
+        rclpy.logging.get_logger("processing_manager").info("shutting down processing loop")
 
     def start(self) -> None:
         """
@@ -78,23 +137,23 @@ class ProcessPointCloudsHandler:
     def set_algorithm(self, algorithm: str):
         """Set the processing algorithm safely using Enum."""
         algorithm = AlgorithmType[algorithm.upper()]
-        if not isinstance(algorithm, AlgorithmType):
-            raise ValueError(f"Invalid algorithm type: {algorithm}")
-
-        self.algorithm = algorithm
-        if self.algorithm == AlgorithmType.ICP:
+        if algorithm == AlgorithmType.ICP:
             processor = ICPProcessor(
                 config_path=self.config_path,
                 data_transfer=self.data_transfer,
                 reset_event=self.reset_event
             )
-        elif self.algorithm == AlgorithmType.DEEP_LEARNING:
-            processor = None
+        elif algorithm == AlgorithmType.DGR:
+            processor = DGRProcessor(
+                config_path=self.config_path,
+                data_transfer=self.data_transfer,
+                reset_event=self.reset_event
+            )
         else:
-            raise ValueError(f"Unsupported algorithm: {algorithm}")
+            raise KeyError(f"Unsupported algorithm: {algorithm}")
 
-        print(
-            f"Switched to algorithm: {self.algorithm.value}")  # Logging for debug
+        rclpy.logging.get_logger("processing_manager").info(
+            f"Switched to algorithm: {algorithm}")
         return processor
 
 
