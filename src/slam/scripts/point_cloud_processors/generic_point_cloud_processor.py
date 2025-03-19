@@ -113,9 +113,10 @@ class ProcessPointClouds(ABC):
         """
         Main fn to process point clouds each loop iteration.
         """
-        point_cloud_pixel = self.data_transfer.pixel_depth_map_queue.get()
+        with self.data_transfer.pixel_depth_map_lock:
+            point_cloud_pixel = self.data_transfer.pixel_depth_map_queue.get_nowait()
+            self.logger.debug(f"{len(point_cloud_pixel)} points received from queue")
 
-        self.logger.debug(f"{len(point_cloud_pixel)} points received from queue")
         # Process the point cloud
         if point_cloud_pixel is not None:
             self.logger.info(

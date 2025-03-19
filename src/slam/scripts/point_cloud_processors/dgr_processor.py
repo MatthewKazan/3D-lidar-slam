@@ -75,7 +75,7 @@ class DGRProcessor(ProcessPointClouds):
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
 
         point_cloud = point_cloud.transform(dgr_result_transformation)
-        self.global_map = np.asarray((point_cloud + o3d_global_map).points)
+        self.global_map = np.asarray((point_cloud + o3d_global_map).voxel_down_sample(0.025).points)
 
     def downsample_global_map(self) -> np.ndarray:
         """
@@ -85,6 +85,6 @@ class DGRProcessor(ProcessPointClouds):
         """
         point_cloud = o3d.geometry.PointCloud()
         point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
-        point_cloud = point_cloud.voxel_down_sample(0.2)
+        point_cloud = point_cloud.voxel_down_sample(0.05)
         self.global_map = np.asarray(point_cloud.points)
         return point_cloud.points

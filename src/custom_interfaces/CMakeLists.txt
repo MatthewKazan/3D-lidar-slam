@@ -4,8 +4,22 @@ project(custom_interfaces)
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
+# Explicitly set the Python executable inside the Conda/Mamba environment
+set(Python3_EXECUTABLE /Users/mattkazan/miniconda3/envs/mink/bin/python)
+
+# Now find Python
+
+# Link necessary Python variables
+set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+set(PYTHON_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
+set(PYTHON_LIBRARY ${Python3_LIBRARIES})
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
+message(STATUS "Python library: ${PYTHON_LIBRARY}")
 
 # find dependencies
+find_package(ament_cmake_core REQUIRED)  # for get_executable_path
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)

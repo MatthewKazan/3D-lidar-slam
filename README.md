@@ -236,3 +236,9 @@ method in the `process_point_clouds.py` file to return an instance of the new cl
   is too small, the system may crash. 
 - ICP is not robust to loop closure and can drift over time.
 - iPhone and ROS2 may not connect if the shared network does not allow LAN connections which is common on university networks.
+-  Could NOT find PythonInterp (missing: PYTHON_EXECUTABLE) or some other cmake error related to rosidl_generate_interfaces.
+   One possible fix is running
+   ```bash
+   rm -rf build install log
+   colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=$(which python)
+   ```

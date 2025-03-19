@@ -33,19 +33,16 @@ def launch_setup(context, *args, **kwargs):
 
         ),
         Node(
-            package='rosbridge_server',
+            package='slam',
             executable='rosbridge_websocket',
             name='rosbridge_websocket',
             parameters=[{
                 'port': 9090,  # Ensure correct WebSocket port
-                # 'use_compression': True,  # Enable compression (better performance)
                 'fragment_size': 1048576,  # Increase buffer size to prevent throttling
                 'max_message_size': 104857600,  # Allow large message sizes (100MB)
-                # 'bson_only_mode': True,  # Keep JSON support
                 'unregister_timeout': 1.0,
                 'retry_interval': 0.05,  # Reduce WebSocket retry time
                 'tcp_nodelay': True
-                # # Disable Nagle's Algorithm for faster transmission
             }],
         )
     ]

@@ -1,7 +1,9 @@
 import multiprocessing
 import os
+import traceback
 
 import rclpy
+import rclpy.logging
 from slam.output_data_handler import PointCloudPublisher
 from slam.input_data_handler import PointClouds2Subscriber
 
@@ -73,12 +75,20 @@ def main():
     try:
         executor.spin()
     except KeyboardInterrupt:
-        pass
+        subscriber_node.get_logger().info("Keyboard interrupt, shutting down...")
+    except Exception as e:
+        print(f"Executor crashed: {e}")
+        traceback.print_exc()
     finally:
+        executor.shutdown()
+
+        for node in nodes:
+            rclpy.logging.get_logger("processing_manager").info(
+                f"Ending node {type(node)}")
+            node.destroy_node()
+
+        data_transfer.queue_shutdown()
         if rclpy.ok():
-            for node in nodes:
-                node.get_logger().info(f"Shutting down {node.get_name()}")
-                node.destroy_node()
             rclpy.shutdown()
 
 if __name__ == '__main__':

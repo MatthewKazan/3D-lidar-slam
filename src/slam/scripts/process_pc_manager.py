@@ -1,6 +1,5 @@
 import multiprocessing
 import time
-from typing import Union
 
 import rclpy.logging
 from rclpy.node import Node
@@ -91,10 +90,6 @@ class ProcessPointCloudsHandler:
             cur_algorithm = self.algorithm.get()
 
             while not self.stop_event.is_set():
-                if self.reset_event.is_set():
-                    rclpy.logging.get_logger("processing_manager").info("Resetting processor")
-                    self.processor.reset()
-                    continue
                 if self.algorithm.get() != cur_algorithm:
                     try:
                         self.processor = self.set_algorithm(self.algorithm.get())
@@ -108,14 +103,21 @@ class ProcessPointCloudsHandler:
                     continue
                 start_time = time.time()
                 self.processor.process()
+
+                # Check here in case the reset_event was set during processing
+                if self.reset_event.is_set():
+                    rclpy.logging.get_logger("processing_manager").info("Resetting processor")
+                    self.processor.reset()
+                    continue
+
                 with self.data_transfer.global_map_lock:
                     self.data_transfer.global_map_queue.put(self.processor.global_map)
                 rclpy.logging.get_logger("processing_manager").info(f"Processing took {time.time() - start_time:.3f} seconds")
 
         except KeyboardInterrupt:
-            rclpy.logging.get_logger("processing_manager").info("Stopped by user")
+            rclpy.logging.get_logger("processing_manager").info("Stopped by user 1")
 
-        rclpy.logging.get_logger("processing_manager").info("shutting down processing loop")
+        # rclpy.logging.get_logger("processing_manager").info("shutting down processing loop")
 
     def start(self) -> None:
         """
@@ -128,11 +130,12 @@ class ProcessPointCloudsHandler:
         Stop the point cloud processing thread.
         """
         self.stop_event.set()
-        self.processor_thread.join(timeout=3)
+        self.processor_thread.join(timeout=15)
 
         if self.processor_thread.is_alive():
             self.processor_thread.terminate()  # Force terminate if it doesn't stop
             self.processor_thread.join()
+        rclpy.logging.get_logger("processing_manager").debug("Processing thread stopped")
 
     def set_algorithm(self, algorithm: str):
         """Set the processing algorithm safely using Enum."""

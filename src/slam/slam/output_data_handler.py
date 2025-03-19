@@ -1,14 +1,12 @@
 import asyncio
 import os
+import queue
 
 import rosbag2_py
-from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, \
     HistoryPolicy
-from rclpy.serialization import serialize_message
 from rclpy.service import SrvTypeResponse
 from std_msgs.msg import Header
-from std_srvs.srv import Trigger
 import sensor_msgs_py.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
 import numpy as np
@@ -116,9 +114,12 @@ class PointCloudPublisher(GenericHandler):
         Check if there is new point cloud data in the queue and publish it.
         """
         with self.data_transfer.global_map_lock:
-            if not self.data_transfer.global_map_queue.empty():
+            try:
                 self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
-                if len(self.global_map_ref) > 0:
-                    self.publish_point_cloud(self.global_map_ref)
+            except queue.Empty:
+                # No new data to publish
+                return
+            if len(self.global_map_ref) > 0:
+                self.publish_point_cloud(self.global_map_ref)
 
 
