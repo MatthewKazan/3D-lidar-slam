@@ -3,89 +3,169 @@ import SwiftUI
 let arViewContainer = ARViewContainer()
 
 struct ContentView: View {
+    @State private var isSidebarOpen = false
+    @State private var selectedOption = ""
     @State private var isScanning = false
-    @State private var isShowingMenu = false
+    @State private var isShowingIPMenu = false
+    @State private var isSavingInputs = false
+
     @State private var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
     
     var body: some View {
-        ZStack {
+        ZStack(alignment: .leading) {
             arViewContainer
                 .edgesIgnoringSafeArea(.all)
-            
+                .onTapGesture {
+                    if isSidebarOpen {
+                        withAnimation {
+                            isSidebarOpen.toggle()
+                        }
+                    }
+               }
+
             VStack {
                 HStack {
                     Button(action: {
-                        isShowingMenu.toggle()
+                        withAnimation {
+                            isSidebarOpen.toggle()
+                        }
                     }) {
-                        Text("Set IP")
+                        Image(systemName: "line.horizontal.3")
+                            .imageScale(.large)
                             .padding()
-                            .background(Color.gray.opacity(0.8))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
                     }
-                    .padding()
                     Spacer()
                 }
+                .padding(.top, 40)
+                
                 Spacer()
                 
-                if !isShowingMenu {
-                    Button(action: {
-                        isScanning.toggle()
-                        arViewContainer.toggleScanning()
-                    }) {
-                        Text(isScanning ? "Stop Scanning" : "Start Scanning")
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
-                    .padding()
-                    HStack {
-                        
-                        Button(action: {
-                            arViewContainer.sendResetRequest()
-                        }) {
-                            Text("Clear DB")
-                                .padding()
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                        }
+                Button(action: {
+                    isScanning.toggle()
+                    arViewContainer.toggleScanning()
+                    
+                }) {
+                    Text(isScanning ? "Stop Scanning" : "Start Scanning")
                         .padding()
-                        
-                        Button(action: {
-                            arViewContainer.sendSaveRequest()
-                        }) {
-                            Text("Save Map")
-                                .padding()
-                                .background(Color.orange)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                        }
-                        .padding()
-                        
-                        Button(action: {
-                            arViewContainer.sendToggleSaveInputRequest()
-                        }) {
-                            Text("Save Inputs")
-                                .padding()
-                                .background(Color.indigo)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                        }
-                        .padding()
-                    }
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
                 }
+                .padding(.bottom, 40)
             }
-            
-            if isShowingMenu {
-                SideMenu(isShowing: $isShowingMenu, selectedIP: $selectedIP)
+            .navigationViewStyle(StackNavigationViewStyle())
+            if isShowingIPMenu {
+                IPMenu(isShowing: $isShowingIPMenu, selectedIP: $selectedIP)
+
+            }
+            if isSidebarOpen {
+                SidebarView(isSidebarOpen: $isSidebarOpen,
+                            selectedOption: $selectedOption,
+                            isShowingIPMenu: $isShowingIPMenu,
+                            isSavingInputs: $isSavingInputs
+                            )
+                    .frame(width: 250)
+                    .transition(.move(edge: .leading))
+                    .zIndex(1)
+            }
+            if isShowingIPMenu {
+                IPMenu(isShowing: $isShowingIPMenu, selectedIP: $selectedIP)
+
             }
         }
+        .edgesIgnoringSafeArea(.all)
+        
+        
     }
 }
 
-struct SideMenu: View {
+struct SidebarView: View {
+    @Binding var isSidebarOpen: Bool
+    @Binding var selectedOption: String
+    @Binding var isShowingIPMenu: Bool
+    @Binding var isSavingInputs: Bool
+        
+    var body: some View {
+        VStack(alignment: .leading) {
+            Button(action: {
+                withAnimation {
+                    isSidebarOpen.toggle()
+                }
+            }) {
+                HStack {
+                    Image(systemName: "xmark")
+                    Text("Close")
+                }
+                .padding()
+            }
+            .buttonStyle(PlainButtonStyle())
+            .padding(.top, 40) // Moves the close button down
+            
+            Divider()
+            
+            Button("Set IP") {
+                withAnimation {
+                isSidebarOpen.toggle()
+                    isShowingIPMenu.toggle()
+
+                }
+            }
+                .padding()
+            Button("Reset") {
+                self.isSavingInputs.toggle()
+                arViewContainer.sendResetRequest()
+
+            }
+            .padding()
+            
+            Button("Save Global Map") {
+                arViewContainer.sendSaveRequest()
+            }
+            .padding()
+            
+            Button(isSavingInputs ? "Stop Saving Inputs" : "Start Saving Inputs") {
+                arViewContainer.sendToggleSaveInputRequest()
+                isSavingInputs.toggle()
+            }
+                .padding()
+            
+            Divider()
+            
+            Text("Select an Algorithm:")
+            .font(.headline)
+            .padding()
+
+            Picker("Options", selection: $selectedOption) {
+                if arViewContainer.viewController.availableAlgorithms.isEmpty {
+                    Text("Loading...").tag("")
+                } else {
+                    Text("").tag("")
+                    ForEach(arViewContainer.viewController.availableAlgorithms, id: \.self) { option in
+                        Text(option).tag(option)
+                    }
+                }
+            }
+            .pickerStyle(.automatic)
+            .padding()
+            .onAppear {
+                arViewContainer.viewController.sendGetAlgorithmsRequest() // Request data when view appears
+            }
+            .onChange(of: selectedOption) {
+                self.isSavingInputs.toggle()
+                arViewContainer.changeAlgorithms(selectedOption)
+            }
+
+            
+            Spacer()
+        }
+        .frame(alignment: .trailing)
+        .background(Color(.systemGray6))
+        .edgesIgnoringSafeArea(.vertical)
+        .offset(x: 0, y: 0)
+    }
+}
+
+struct IPMenu: View {
     @Binding var isShowing: Bool
     @Binding var selectedIP: String
     
@@ -133,7 +213,7 @@ struct SideMenu: View {
 }
 
 struct ARViewContainer: UIViewControllerRepresentable {
-    let viewController = ARDepthViewController()
+    @State var viewController = ARDepthViewController()
     
     func makeUIViewController(context: Context) -> ARDepthViewController {
         return viewController
@@ -158,8 +238,10 @@ struct ARViewContainer: UIViewControllerRepresentable {
     func sendToggleSaveInputRequest() {
         viewController.sendToggleSaveInputRequest()
     }
-}
-
-#Preview {
-    ContentView()
+    func sendGetAlgorithmsRequest() {
+        viewController.sendGetAlgorithmsRequest()
+    }
+    func changeAlgorithms(_ alg_str: String) {
+        viewController.changeAlgorithms(alg_str: alg_str)
+    }
 }

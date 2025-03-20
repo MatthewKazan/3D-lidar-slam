@@ -242,3 +242,8 @@ method in the `process_point_clouds.py` file to return an instance of the new cl
    rm -rf build install log
    colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=$(which python)
    ```
+   -  'Service type support not from this implementation. Got: Could not load library libcustom_interfaces__rosidl_typesupport_introspection_c.dylib...'
+      This seems to be an issue with the mamba robostack env, copy the dylib files from the install directory to your mamba env with:
+        ```bash
+         cp -v install/**/lib/*.dylib <path to mamba env>/lib/
+   ```

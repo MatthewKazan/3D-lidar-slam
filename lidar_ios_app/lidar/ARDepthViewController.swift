@@ -28,7 +28,7 @@ import Starscream  // ✅ Ensure Starscream is imported for WebSocket
 /// - Sends data via a **WebSocket connection**.
 /// - Provides start/stop functionality for scanning.
 /// - Handles WebSocket reconnections automatically.
-class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDelegate {
+class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDelegate, ObservableObject {
     var arView: ARSCNView!
     var capturedPointCloud: [SIMD3<Float>] = []
     var isScanning = false
@@ -37,17 +37,19 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     var isConnected = false  // ✅ Track WebSocket connection status
     var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? "172.20.10.7"
     var num_scans = 0
+    @Published var availableAlgorithms: [String] = []
+    var isLoading: Bool = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        
+
         // Initialize AR View
         arView = ARSCNView(frame: self.view.bounds)
         self.view.addSubview(arView)
         arView.session.delegate = self
 
-
         self.setIPAddress(ip: self.selectedIP)
+        self.sendGetAlgorithmsRequest()
     }
 
     // MARK: - **Scanning Control Methods**
@@ -59,7 +61,10 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         // Enable LiDAR depth data collection
         let configuration = ARWorldTrackingConfiguration()
         configuration.frameSemantics = .sceneDepth
-        arView.session.run(configuration)
+        // Delay to ensure ARKit fully resets
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        }
         num_scans = 0
 
         isScanning = true
@@ -72,6 +77,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     func stopScanning() {
         if !isScanning { return }
         isScanning = false
+        self.arView.session.pause()
         scanningTimer?.invalidate()
         scanningTimer = nil
 //        arView.session.pause()
@@ -208,9 +214,26 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             self.sendServiceRequest(service: "/toggle_save_inputs")
         }
     }
+    
+    func sendGetAlgorithmsRequest() {
+        self.isLoading = true
+        self.setIPAddress(ip: self.selectedIP)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.sendServiceRequest(service: "/get_algorithms_list", type: "custom_interfaces/srv/GetAlgorithmsList")
+        }
+    }
+    
+    func changeAlgorithms(alg_str: String) {
+        self.setIPAddress(ip: self.selectedIP)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.sendServiceRequest(service: "/set_algorithm", args: ["algorithm": alg_str], type: "custom_interfaces/srv/SetAlgorithm")
+        }
+    }
 
     /// Handles WebSocket connection events.
     func didReceive(event: Starscream.WebSocketEvent, client: any Starscream.WebSocketClient) {
+        print(event, client)
+
         switch event {
         case .connected(_):
             isConnected = true
@@ -219,29 +242,36 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         case .disconnected(let reason, let code):
             isConnected = false
             print("❌ WebSocket Disconnected: \(reason) (Code: \(code))")
-
+        case .text(let string):
+            print("string", string)
+            parseReceivedString(msg: string)
+        case .binary(let data):
+            print("binary", data)
         case .error(let error):
             isConnected = false
             print("⚠️ WebSocket Error: \(error?.localizedDescription ?? "Unknown error")")
 
         default:
+            print("unkown")
             break
         }
     }
     
     /// Sends a service request to a **ROS2 service** via WebSocket.
-    func sendServiceRequest(service: String) {
+    func sendServiceRequest(service: String, args: [AnyHashable:Any] = [:], type: String = "std_srvs/srv/Trigger") {
         let message: [String: Any] = [
             "op": "call_service",
             "service": service,
-            "args": [:]
+//            "type": type,
+            "id": service,
+            "args": args
         ]
 
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: message, options: [])
             if let jsonString = String(data: jsonData, encoding: .utf8) {
                 socket?.write(string: jsonString)
-                print("Sent save request via WebSocket")
+                print("Sent \(service) request via WebSocket")
             }
         } catch {
             print("Failed to encode JSON: \(error)")
@@ -269,4 +299,34 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             print("Failed to publish to topic \(error)")
         }
     }
+    
+    func parseReceivedString(msg: String) {
+        print(msg)
+        if let data = msg.data(using: .utf8) {
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                   let id = json["id"] as? String,
+                   let values = json["values"] as? [String: Any]
+                {
+                    switch id {
+                    case "/get_algorithms_list":
+                        handleGetAlgorithmList(values: values)
+                    default:
+                        break
+                    }
+                }
+            } catch {
+                print("Failed to parse JSON: \(error)")
+            }
+        }
+    }
+    func handleGetAlgorithmList(values: [String: Any]) {
+        self.availableAlgorithms = values["algorithms"] as? [String] ?? []
+        self.isLoading = false
+        print(self.availableAlgorithms)
+        
+    }
+    
+   
+    
 }

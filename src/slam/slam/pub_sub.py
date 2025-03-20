@@ -14,7 +14,12 @@ from scripts.process_pc_manager import ProcessPointCloudsHandlerNode
 from slam.simple_service_handler import ResetServiceMapping, \
     ServiceMapping, SimpleServiceHandler
 from std_srvs.srv import Trigger
-from  custom_interfaces.srv import SetAlgorithm
+from custom_interfaces.srv import SetAlgorithm
+from custom_interfaces.srv import GetAlgorithmsList
+
+from slam.simple_service_handler import get_algorithms_list_callback
+
+from slam.simple_service_handler import SetAlgorithmServiceMapping
 
 
 def main():
@@ -56,12 +61,20 @@ def main():
         stop_event=stop_event,
         reset_event=reset_event
     )
-
+    reset_mapping = ResetServiceMapping([subscriber_node, publisher_node, data_transfer],
+                            reset_event)
     service_mappings = [
-        ResetServiceMapping([subscriber_node, publisher_node, data_transfer], reset_event),
-        ServiceMapping("/save_global_map", Trigger, publisher_node.save_map_callback),
-        ServiceMapping("/toggle_save_inputs", Trigger, subscriber_node.save_inputs_callback),
-        ServiceMapping("/set_algorithm", SetAlgorithm, processor_handler.set_algorithm),
+        reset_mapping,
+        ServiceMapping("/save_global_map", Trigger,
+                       publisher_node.save_map_callback),
+        ServiceMapping("/toggle_save_inputs", Trigger,
+                       subscriber_node.save_inputs_callback),
+        ServiceMapping("/set_algorithm", SetAlgorithm,
+                       processor_handler.set_algorithm),
+        ServiceMapping("/get_algorithms_list", GetAlgorithmsList,
+                       get_algorithms_list_callback),
+    SetAlgorithmServiceMapping(reset_service_mapping=reset_mapping,
+                                   callback=processor_handler.set_algorithm)
     ]
     service_handler = SimpleServiceHandler(service_mappings)
 

@@ -80,6 +80,7 @@ class PointClouds2Subscriber(GenericHandler):
         """
         self.num_pcs = 0
         self.input_writer = None
+        self.should_save_inputs = False
 
     def setup_input_rosbags(self):
         """

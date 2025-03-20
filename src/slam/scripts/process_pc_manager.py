@@ -40,6 +40,11 @@ class ProcessPointCloudsHandlerNode(Node):
         Service callback to change the processing algorithm.
         """
         self.get_logger().info(f"Received request to set algorithm to {request.algorithm}")
+        if request.algorithm not in AlgorithmType.__members__:
+            response.success = False
+            response.message = f"Unsupported algorithm: {request.algorithm}"
+            self.get_logger().error(response.message)
+            return response
         self.algorithm.set(request.algorithm)
 
         response.success = True
@@ -139,6 +144,7 @@ class ProcessPointCloudsHandler:
 
     def set_algorithm(self, algorithm: str):
         """Set the processing algorithm safely using Enum."""
+
         algorithm = AlgorithmType[algorithm.upper()]
         if algorithm == AlgorithmType.ICP:
             processor = ICPProcessor(

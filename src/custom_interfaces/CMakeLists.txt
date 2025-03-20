@@ -26,9 +26,11 @@ find_package(std_msgs REQUIRED)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "srv/SetAlgorithm.srv"
+    "srv/SetAlgorithm.srv"
+    "srv/GetAlgorithmsList.srv"
+    LIBRARY_NAME ${PROJECT_NAME}
+    DEPENDENCIES builtin_interfaces
 )
-
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights
@@ -41,4 +43,12 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+# Ensure the correct RPATH is set for macOS
+set(CMAKE_MACOSX_RPATH 1)
+
+# Set RPATH to include the installation directory
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+
+# Allow RPATH modifications (prevents install_name_tool errors)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 ament_package()
