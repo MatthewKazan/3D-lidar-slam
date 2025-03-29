@@ -82,14 +82,6 @@ class ICPProcessor(ProcessPointClouds):
         source_down = source_cloud.voxel_down_sample(voxel_size)
         target_down = target_cloud.voxel_down_sample(voxel_size)
 
-        # # # Estimate normals
-        source_down.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2,
-                                                 max_nn=20))
-        target_down.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(radius=voxel_size * 2,
-                                                 max_nn=20))
-
         # print("time to get to registration_icp: ", time.time() - self.start_time)
         # Align with ICP
         result_icp = o3d.pipelines.registration.registration_icp(
