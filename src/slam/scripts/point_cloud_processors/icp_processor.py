@@ -5,6 +5,7 @@ algorithm to store it in a global map. All algorithms are subclasses of the
 ProcessPointClouds class. The ICPProcessor class aligns the new point cloud with
 """
 import multiprocessing
+import queue
 
 import numpy as np
 import open3d as o3d
@@ -39,6 +40,9 @@ class ICPProcessor(ProcessPointClouds):
             data_transfer,
             rclpy.logging.get_logger("icp processor")
         )
+        self.pcs_to_align_with = []
+        self.prev_downsample_freq = 10
+        self.downsample_freq = 10
 
     def construct_global_map(self, points: np.array) -> None:
         """
@@ -48,13 +52,19 @@ class ICPProcessor(ProcessPointClouds):
 
         :return: The new point cloud transformed to align with the global map
         """
+        if len(self.pcs_to_align_with) == 0:
+            point_cloud = o3d.geometry.PointCloud()
+            point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
+            self.pcs_to_align_with.append(point_cloud)
+
         point_cloud = o3d.geometry.PointCloud()
         point_cloud.points = o3d.utility.Vector3dVector(points)
         # Can this be done quickly?
         # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
 
         o3d_global_map = o3d.geometry.PointCloud()
-        o3d_global_map.points = o3d.utility.Vector3dVector(self.global_map)
+        for pc in self.pcs_to_align_with:
+            o3d_global_map += pc
 
         # Perform ICP alignment
         icp_result_transformation = self.align_point_clouds_with_icp(
@@ -62,8 +72,12 @@ class ICPProcessor(ProcessPointClouds):
         if icp_result_transformation is None:
             return
 
-        point_cloud = point_cloud.transform(icp_result_transformation)
-        self.global_map = np.asarray((point_cloud + o3d_global_map).points)
+        point_cloud.transform(icp_result_transformation)
+        self.global_map = np.vstack([self.global_map, np.asarray(point_cloud.points)])
+        self.pcs_to_align_with.append(point_cloud)
+        if len(self.pcs_to_align_with) > 10:
+            # Keep the last 5 point clouds for alignment to save memory
+            self.pcs_to_align_with.pop(0)
         self.do_stuff()
 
     def align_point_clouds_with_icp(self, source_cloud, target_cloud,
@@ -77,6 +91,7 @@ class ICPProcessor(ProcessPointClouds):
 
         :return: The 4x4 transformation matrix to align the new point cloud with the global map
         """
+
         # print("time to get to align_point_clouds_with_icp: ", time.time() - self.start_time)
         # Downsample the clouds
         source_down = source_cloud.voxel_down_sample(voxel_size)
@@ -86,11 +101,11 @@ class ICPProcessor(ProcessPointClouds):
         # Align with ICP
         result_icp = o3d.pipelines.registration.registration_icp(
             source_down, target_down,
-            max_correspondence_distance=voxel_size * 2.5,
+            max_correspondence_distance=voxel_size * 2.5,#2.5,
             init=self.previous_transformation[-1],
             estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
             criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-                max_iteration=500,
+                max_iteration=1000,
                 relative_fitness=1e-6,
                 relative_rmse=1e-6
             )
@@ -108,28 +123,36 @@ class ICPProcessor(ProcessPointClouds):
         clouds, remove outliers, downsample, etc.
         """
         # Pulled all of these numbers out of nowhere
-        if self.point_clouds_in_map < 10:
-            return
-        if self.point_clouds_in_map % 10 == 0 or self.data_transfer.pixel_depth_map_queue.empty():
+        if self.point_clouds_in_map % self.downsample_freq == 0 or self.data_transfer.pixel_depth_map_queue.empty():
+            self.logger.info(
+                "started downsampling and outlier removal on global map")
             point_cloud_map = o3d.geometry.PointCloud()
             point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
             point_cloud_map: o3d.geometry.PointCloud = point_cloud_map.voxel_down_sample(
                 0.001)
 
-            if self.point_clouds_in_map % 40 == 0:
-                point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
-                    nb_neighbors=80, std_ratio=2)
-                # This is slow but seems to make a difference
-                point_cloud_map, _ = point_cloud_map.remove_radius_outlier(
-                    nb_points=8, radius=0.023)
-
-                self.global_map = np.asarray(point_cloud_map.points)
-                return
+            # if self.point_clouds_in_map % 40 == 0:
+            #     point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
+            #         nb_neighbors=80, std_ratio=2)
+            #     # This is slow but seems to make a difference
+            #     point_cloud_map, _ = point_cloud_map.remove_radius_outlier(
+            #         nb_points=8, radius=0.023)
+            #
+            #     self.global_map = np.asarray(point_cloud_map.points)
+            #     self.logger.info(
+            #         "stopped downsampling and outlier removal on global map")
+            #
+            #     return
 
             point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
                 nb_neighbors=45, std_ratio=3.5)
 
             self.global_map = np.asarray(point_cloud_map.points)
+            temp = self.downsample_freq
+            self.downsample_freq += self.downsample_freq + self.prev_downsample_freq
+            self.prev_downsample_freq = temp
+            self.logger.info(
+                "stopped downsampling and outlier removal on global map")
 
     def downsample_global_map(self) -> np.ndarray:
         """

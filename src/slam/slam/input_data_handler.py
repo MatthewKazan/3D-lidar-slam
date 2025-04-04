@@ -69,7 +69,7 @@ class PointClouds2Subscriber(GenericHandler):
 
             self.num_pcs += 1
             self.get_logger().debug(f"Added {len(points)} new points to queue.")
-            self.get_logger().debug(f"Queue size: {self.num_pcs}")
+            self.get_logger().info(f"Queue size: {self.num_pcs}")
 
         except queue.Full:
             self.get_logger().warn("PointCloud queue is full! Dropping frame.")

@@ -112,7 +112,7 @@ struct SidebarView: View {
             }
                 .padding()
             Button("Reset") {
-                self.isSavingInputs.toggle()
+                self.isSavingInputs = false
                 arViewContainer.sendResetRequest()
 
             }
@@ -151,7 +151,7 @@ struct SidebarView: View {
                 arViewContainer.viewController.sendGetAlgorithmsRequest() // Request data when view appears
             }
             .onChange(of: selectedOption) {
-                self.isSavingInputs.toggle()
+                self.isSavingInputs = false
                 arViewContainer.changeAlgorithms(selectedOption)
             }
 

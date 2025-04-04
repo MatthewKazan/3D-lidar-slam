@@ -6,6 +6,7 @@ import numpy as np
 import yaml
 
 from scripts.data_transfer import DataTransfer
+from scripts.point_cloud_processors.pose_graph import PoseGraphGTSAMICP
 
 
 class ProcessPointClouds(ABC):
@@ -56,7 +57,6 @@ class ProcessPointClouds(ABC):
 
         self.start_time = None
         self.reset_event = reset_event
-
 
         self.logger.info(f"Using {self.__class__.__name__} for point cloud processing")
 
@@ -109,30 +109,37 @@ class ProcessPointClouds(ABC):
         return points_3d
 
 
-    def process(self) -> None:
+    def process(self) -> np.ndarray:
         """
         Main fn to process point clouds each loop iteration.
+
+        :return: The new point cloud transformed to align with the global map
         """
         with self.data_transfer.pixel_depth_map_lock:
             point_cloud_pixel = self.data_transfer.pixel_depth_map_queue.get_nowait()
             self.logger.debug(f"{len(point_cloud_pixel)} points received from queue")
 
         # Process the point cloud
-        if point_cloud_pixel is not None:
-            self.logger.info(
-                f"pcs processed so far: {self.point_clouds_in_map}")
+        if point_cloud_pixel is None:
+            return np.array([])
 
-            point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
-            del point_cloud_pixel
+        self.logger.info(
+            f"pcs processed so far: {self.point_clouds_in_map}")
 
-            # If this is the first point cloud, set it as the global map
-            if self.point_clouds_in_map == 0:
-                self.point_clouds_in_map += 1
-                self.global_map = point_cloud_3d
-                return
+        point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
+        del point_cloud_pixel
 
-            self.construct_global_map(point_cloud_3d)
+        # If this is the first point cloud, set it as the global map
+        if self.point_clouds_in_map == 0:
             self.point_clouds_in_map += 1
+            self.global_map = point_cloud_3d
+            return point_cloud_3d
+
+        # Transform the new point cloud into the global map frame and add to self.global_map
+        original_scan = point_cloud_3d.copy()  # Save the original scan for logging or debugging
+        self.construct_global_map(point_cloud_3d)
+        self.point_clouds_in_map += 1
+        return original_scan
 
     def reset(self) -> None:
         """
@@ -146,8 +153,30 @@ class ProcessPointClouds(ABC):
         self.reset_event.clear()
         time.sleep(1)
 
+    def rebuild_global_map(self, keyframes) -> None:
+        """
+        Rebuild the global map from the pose graph keyframes.
+        """
+        transformed_clouds = np.array([])
+        self.point_clouds_in_map = 0
+        self.previous_transformation = []
+
+        for keyframe in keyframes:
+            T = np.array(keyframe['pose'].matrix())
+            pc = keyframe['point_cloud']
+            transformed_pc = transform_point_cloud(pc, T)
+            if transformed_clouds.size == 0:
+                transformed_clouds = transformed_pc
+            else:
+                transformed_clouds = np.concatenate((transformed_clouds, transformed_pc))
+            self.point_clouds_in_map += 1
+            self.previous_transformation.append(T)
+
+        self.global_map = transformed_clouds
+        self.logger.info(f"Global map rebuilt from {len(keyframes)} keyframes")
+
     @abstractmethod
-    def construct_global_map(self, points: np.array) -> None:
+    def construct_global_map(self, points: np.array) -> np.ndarray:
         """
         Construct the global map from the point cloud.
         Store the global map in the global_map instance variable.
@@ -167,6 +196,22 @@ class ProcessPointClouds(ABC):
         """
         pass
 
+
+def transform_point_cloud(pc: np.ndarray, T: np.ndarray) -> np.ndarray:
+    """
+    Transform a point cloud using a 4x4 transformation matrix.
+
+    :param pc: The point cloud to transform
+    :param T: The 4x4 transformation matrix
+
+    :return: The transformed point cloud
+    """
+    # Add a row of [0, 0, 0, 1] to the point cloud to make it homogeneous.
+    pc_h = np.hstack((pc, np.ones((pc.shape[0], 1))))
+    # Transform the point cloud using the transformation matrix.
+    pc_transformed_h = np.dot(T, pc_h.T).T
+    # Remove the homogeneous coordinate and return the transformed point cloud.
+    return pc_transformed_h[:, :3]
 
 if __name__ == "__main__":
     pass

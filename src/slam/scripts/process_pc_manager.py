@@ -1,4 +1,5 @@
 import multiprocessing
+import threading
 import time
 
 import rclpy.logging
@@ -10,6 +11,9 @@ from scripts.point_cloud_processors import ICPProcessor
 from scripts.point_cloud_processors import DGRProcessor
 from  custom_interfaces.srv import SetAlgorithm
 from rclpy.service import SrvTypeResponse
+
+from scripts.point_cloud_processors.pose_graph import \
+    PoseGraphGTSAMICP, compute_scan_context_descriptor
 
 
 class ProcessPointCloudsHandlerNode(Node):
@@ -33,7 +37,9 @@ class ProcessPointCloudsHandlerNode(Node):
             stop_event=stop_event,
             reset_event=reset_event,
         )
-        self.processor_handler.start()
+        self.timer = self.create_timer(0.1, self.processor_handler.process_loop)
+
+        # self.processor_handler.start()
 
     def set_algorithm(self, request, response) -> SrvTypeResponse:
         """
@@ -83,63 +89,83 @@ class ProcessPointCloudsHandler:
         self.algorithm = algorithm
         # Can't define self.processor here because it is unpicklable, breaks multiprocessing
         self.processor = None
+        self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map)
+        self.processor = self.set_algorithm(self.algorithm.get())
 
-        self.processor_thread = multiprocessing.Process(target=self.process_loop)
+        # self.processor_thread = threading.Thread(target=self.process_loop)
+
 
     def process_loop(self) -> None:
         """
         Start the point cloud processing thread. Should be run in a separate process.
         """
         try:
-            self.processor = self.set_algorithm(self.algorithm.get())
+            ### Handle ROS2 Events ###
             cur_algorithm = self.algorithm.get()
 
-            while not self.stop_event.is_set():
-                if self.algorithm.get() != cur_algorithm:
-                    try:
-                        self.processor = self.set_algorithm(self.algorithm.get())
-                    except KeyError as e:
-                        rclpy.logging.get_logger("processing_manager").error(f"Error setting algorithm: {e}, reverting to previous algorithm {cur_algorithm}")
-                        self.algorithm.set(cur_algorithm)  # Revert to previous algorithm
-                        continue
-                    cur_algorithm = self.algorithm.get()
-                if self.data_transfer.pixel_depth_map_queue.empty():
-                    time.sleep(0.1)
-                    continue
-                start_time = time.time()
-                self.processor.process()
+            # while not self.stop_event.is_set():
+            if self.algorithm.get() != cur_algorithm:
+                try:
+                    self.processor = self.set_algorithm(self.algorithm.get())
+                except KeyError as e:
+                    rclpy.logging.get_logger("processing_manager").error(f"Error setting algorithm: {e}, reverting to previous algorithm {cur_algorithm}")
+                    self.algorithm.set(cur_algorithm)  # Revert to previous algorithm
+                    return
+                cur_algorithm = self.algorithm.get()
+            if self.data_transfer.pixel_depth_map_queue.empty():
+                time.sleep(0.1)
+                return
+            start_time = time.time()
 
-                # Check here in case the reset_event was set during processing
-                if self.reset_event.is_set():
-                    rclpy.logging.get_logger("processing_manager").info("Resetting processor")
-                    self.processor.reset()
-                    continue
+            ### Do actual data processing ###
+            scan_pc = self.processor.process()
+            if scan_pc is not None and len(scan_pc) > 0:
+                self.pose_graph.update_pose_graph(
+                    trans=self.processor.previous_transformation[-1],
+                    scan_pc=scan_pc,
+                    gen_descriptor=compute_scan_context_descriptor
+                )
 
-                with self.data_transfer.global_map_lock:
-                    self.data_transfer.global_map_queue.put(self.processor.global_map)
-                rclpy.logging.get_logger("processing_manager").info(f"Processing took {time.time() - start_time:.3f} seconds")
+            ### Handle more ROS2 Events ###
+            # Check here in case the reset_event was set during processing
+            if self.reset_event.is_set():
+                rclpy.logging.get_logger("processing_manager").info("Resetting processor and pose graph")
+                self.processor.reset()
+                self.pose_graph.reset()
+                return
+            rclpy.logging.get_logger("processing_manager").info(f"Sending global map to publisher")
+
+            with self.data_transfer.global_map_lock:
+                self.data_transfer.global_map_queue.put(self.processor.global_map)
+            rclpy.logging.get_logger("processing_manager").info(f"Processing took {time.time() - start_time:.3f} seconds")
 
         except KeyboardInterrupt:
             rclpy.logging.get_logger("processing_manager").info("Stopped by user 1")
-
+        except Exception as e:
+            """
+            Catch-all for any exceptions in the processing loop to avoid crashing the thread.
+            """
+            rclpy.logging.get_logger("processing_manager").error(
+                f"Exception in process loop: {e}, {type(e)}")
+            raise
         # rclpy.logging.get_logger("processing_manager").info("shutting down processing loop")
 
     def start(self) -> None:
         """
         Start the point cloud processing thread.
         """
-        self.processor_thread.start()
+        # self.processor_thread.start()
+        # self.pose_graph.start()
+        pass
 
     def stop(self) -> None:
         """
         Stop the point cloud processing thread.
         """
         self.stop_event.set()
-        self.processor_thread.join(timeout=15)
+        self.pose_graph.stop()
+        # self.processor_thread.join(timeout=15)
 
-        if self.processor_thread.is_alive():
-            self.processor_thread.terminate()  # Force terminate if it doesn't stop
-            self.processor_thread.join()
         rclpy.logging.get_logger("processing_manager").debug("Processing thread stopped")
 
     def set_algorithm(self, algorithm: str):
@@ -164,6 +190,14 @@ class ProcessPointCloudsHandler:
         rclpy.logging.get_logger("processing_manager").info(
             f"Switched to algorithm: {algorithm}")
         return processor
+
+    def on_optimized_global_map(self, keyframes):
+        """
+        Callback for the pose graph optimizer to update the global map in the processor.
+        """
+        rclpy.logging.get_logger("processing_manager").info(
+            f"Called Optimizer")
+        self.processor.rebuild_global_map(keyframes)
 
 
 if __name__ == "__main__":

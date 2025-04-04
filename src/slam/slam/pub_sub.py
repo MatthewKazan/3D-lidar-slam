@@ -80,7 +80,7 @@ def main():
 
     nodes = [subscriber_node, publisher_node, processor_handler, service_handler]
 
-    executor = rclpy.executors.MultiThreadedExecutor()
+    executor = rclpy.executors.MultiThreadedExecutor(len(nodes) + 3)
     for node in nodes:
         node.get_logger().info(f"Adding {node.get_name()} to executor")
         executor.add_node(node)
@@ -96,9 +96,9 @@ def main():
         executor.shutdown()
 
         for node in nodes:
-            rclpy.logging.get_logger("processing_manager").info(
-                f"Ending node {type(node)}")
             node.destroy_node()
+            rclpy.logging.get_logger("processing_manager").info(
+                f"Ended node {type(node)}")
 
         data_transfer.queue_shutdown()
         if rclpy.ok():

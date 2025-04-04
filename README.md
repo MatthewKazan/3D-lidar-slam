@@ -192,11 +192,11 @@ Launch the ROS2 system as normal
 ```
 Then in a new terminal, run the following command to play the rosbag file:
 ```bash
-    ros2 bag play src/slam/rosbags/rosbags_<unique_id>/inputs/inputs_0.db3
+    ros2 bag play src/slam/rosbags/input_bags/inputs_<unique_id>
 ```
 For example
 ```bash
-    ros2 bag play src/slam/rosbags/rosbags_20250213_190958/inputs/inputs_0.db3
+    ros2 bag play src/slam/rosbags/input_bags/inputs_20250401_220150/
 ```
 
 And the inputs will be sent to the SLAM system as if they were coming from the iPhone app.

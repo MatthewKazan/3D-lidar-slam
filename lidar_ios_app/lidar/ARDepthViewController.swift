@@ -68,7 +68,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         num_scans = 0
 
         isScanning = true
-        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.40, repeats: true) { _ in
+        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             self.capturePointCloud()
         }
     }
@@ -96,6 +96,10 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         guard isScanning, let frame = arView.session.currentFrame, let depthData = frame.sceneDepth?.depthMap else {
             print("Depth data is unavailable.")
             return
+        }
+        guard num_scans >= 1 else {
+            num_scans += 1
+            return  // Skip the first frame
         }
         uploadPointCloud(from: depthData)
     }

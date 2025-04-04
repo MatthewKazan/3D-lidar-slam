@@ -1,5 +1,6 @@
 import multiprocessing
 import queue
+import threading
 
 import rclpy.logging
 
@@ -13,10 +14,10 @@ class DataTransfer:
         """
         Initialize the data transfer object.
         """
-        self.pixel_depth_map_lock = multiprocessing.Lock()
+        self.pixel_depth_map_lock = threading.Lock()
         self.pixel_depth_map_queue = multiprocessing.Queue()
         self.global_map_queue = multiprocessing.Queue(1)
-        self.global_map_lock = multiprocessing.Lock()
+        self.global_map_lock = threading.Lock()
 
     def reset(self):
         """
