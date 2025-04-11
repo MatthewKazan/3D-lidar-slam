@@ -6,15 +6,15 @@ ProcessPointClouds class. The ICPProcessor class aligns the new point cloud with
 """
 import multiprocessing
 import queue
+import time
 
 import numpy as np
 import open3d as o3d
 import rclpy.logging
 
 from scripts.data_transfer import DataTransfer
-
 from scripts.point_cloud_processors.generic_point_cloud_processor import ProcessPointClouds
-
+# from scripts.point_cloud_processors.generic_point_cloud_processor impor
 
 class ICPProcessor(ProcessPointClouds):
     """
@@ -24,7 +24,7 @@ class ICPProcessor(ProcessPointClouds):
 
     def __init__(self,
         config_path: str,
-        reset_event: multiprocessing.Event,
+        # reset_event: multiprocessing.Event,
         data_transfer: DataTransfer,
     ):
         """
@@ -36,7 +36,7 @@ class ICPProcessor(ProcessPointClouds):
         """
         super().__init__(
             config_path,
-            reset_event,
+            # reset_event,
             data_transfer,
             rclpy.logging.get_logger("icp processor")
         )
@@ -44,7 +44,7 @@ class ICPProcessor(ProcessPointClouds):
         self.prev_downsample_freq = 10
         self.downsample_freq = 10
 
-    def construct_global_map(self, points: np.array) -> None:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=0.02) -> o3d.geometry.PointCloud:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
@@ -52,13 +52,11 @@ class ICPProcessor(ProcessPointClouds):
 
         :return: The new point cloud transformed to align with the global map
         """
-        if len(self.pcs_to_align_with) == 0:
-            point_cloud = o3d.geometry.PointCloud()
-            point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
-            self.pcs_to_align_with.append(point_cloud)
+        # point_cloud = o3d.geometry.PointCloud()
+        # point_cloud.points = o3d.utility.Vector3dVector(points)
+        # point_cloud = point_cloud.voxel_down_sample(voxel_size)
 
-        point_cloud = o3d.geometry.PointCloud()
-        point_cloud.points = o3d.utility.Vector3dVector(points)
+
         # Can this be done quickly?
         # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
 
@@ -66,19 +64,20 @@ class ICPProcessor(ProcessPointClouds):
         for pc in self.pcs_to_align_with:
             o3d_global_map += pc
 
+        point_cloud = point_cloud.voxel_down_sample(voxel_size)
         # Perform ICP alignment
+        t = time.time()
         icp_result_transformation = self.align_point_clouds_with_icp(
-            point_cloud, o3d_global_map)
+            point_cloud, o3d_global_map, voxel_size)
+        self.logger.debug(f"ICP took {time.time() - t:.3f} seconds")
         if icp_result_transformation is None:
-            return
+            raise ValueError("ICP failed to find a transformation")
 
         point_cloud.transform(icp_result_transformation)
-        self.global_map = np.vstack([self.global_map, np.asarray(point_cloud.points)])
-        self.pcs_to_align_with.append(point_cloud)
-        if len(self.pcs_to_align_with) > 10:
-            # Keep the last 5 point clouds for alignment to save memory
-            self.pcs_to_align_with.pop(0)
+        self.global_map += point_cloud
         self.do_stuff()
+
+        return point_cloud
 
     def align_point_clouds_with_icp(self, source_cloud, target_cloud,
         voxel_size=0.02) -> np.ndarray:
@@ -94,7 +93,7 @@ class ICPProcessor(ProcessPointClouds):
 
         # print("time to get to align_point_clouds_with_icp: ", time.time() - self.start_time)
         # Downsample the clouds
-        source_down = source_cloud.voxel_down_sample(voxel_size)
+        source_down = source_cloud#.voxel_down_sample(voxel_size)
         target_down = target_cloud.voxel_down_sample(voxel_size)
 
         # print("time to get to registration_icp: ", time.time() - self.start_time)
@@ -110,10 +109,12 @@ class ICPProcessor(ProcessPointClouds):
                 relative_rmse=1e-6
             )
         )
+        if self.data_transfer.stop_event.is_set():
+            raise KeyboardInterrupt("Stopping ICP processing")
 
         # print("ICP Refined Transformation:")
         # print(result_icp.transformation)
-        # print(f"Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}")
+        self.logger.info(f"Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}")
         self.previous_transformation.append(result_icp.transformation)
         return result_icp.transformation
 
@@ -126,10 +127,9 @@ class ICPProcessor(ProcessPointClouds):
         if self.point_clouds_in_map % self.downsample_freq == 0 or self.data_transfer.pixel_depth_map_queue.empty():
             self.logger.info(
                 "started downsampling and outlier removal on global map")
-            point_cloud_map = o3d.geometry.PointCloud()
-            point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
-            point_cloud_map: o3d.geometry.PointCloud = point_cloud_map.voxel_down_sample(
-                0.001)
+            # point_cloud_map = o3d.geometry.PointCloud()
+            # point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
+            self.global_map.voxel_down_sample(0.001)
 
             # if self.point_clouds_in_map % 40 == 0:
             #     point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
@@ -144,10 +144,10 @@ class ICPProcessor(ProcessPointClouds):
             #
             #     return
 
-            point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
-                nb_neighbors=45, std_ratio=3.5)
+            self.global_map, _ = self.global_map.remove_statistical_outlier(
+                nb_neighbors=45, std_ratio=2)
 
-            self.global_map = np.asarray(point_cloud_map.points)
+            # self.global_map = np.asarray(point_cloud_map.points)
             temp = self.downsample_freq
             self.downsample_freq += self.downsample_freq + self.prev_downsample_freq
             self.prev_downsample_freq = temp
@@ -160,11 +160,34 @@ class ICPProcessor(ProcessPointClouds):
 
         :return: The downsampled global map
         """
-        point_cloud = o3d.geometry.PointCloud()
-        point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
+        # point_cloud = o3d.geometry.PointCloud()
+        # point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
         # point_cloud = point_cloud.voxel_down_sample(0.2)
         # self.global_map = np.asarray(point_cloud.points)
-        return point_cloud.points
+        return self.global_map
+
+    # def rebuild_global_map(self, keyframes) -> None:
+    #     super().rebuild_global_map(keyframes)
+    #     self.pcs_to_align_with = []
+    #     for keyframe in keyframes[-5:]:
+    #         T = np.array(keyframe['pose'].matrix())
+    #         pc = keyframe['point_cloud']
+    #         pc.transform(T)
+    #         self.pcs_to_align_with.append(pc)
+
+
+
+    def create_pc_from_points(self, points: np.ndarray) -> o3d.geometry.PointCloud:
+        """
+        Create a point cloud from a numpy array of points.
+
+        :param points: The points to create the point cloud from
+
+        :return: The created point cloud
+        """
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(points)
+        return point_cloud
 
 
 if __name__ == "__main__":

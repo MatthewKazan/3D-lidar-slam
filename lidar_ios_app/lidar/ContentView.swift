@@ -1,6 +1,17 @@
 import SwiftUI
 
-let arViewContainer = ARViewContainer()
+@main
+struct MyARApp: App {
+    // Create a single instance of your view controller
+    @StateObject private var arViewController = ARDepthViewController()
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(arViewController)
+        }
+    }
+}
 
 struct ContentView: View {
     @State private var isSidebarOpen = false
@@ -8,12 +19,13 @@ struct ContentView: View {
     @State private var isScanning = false
     @State private var isShowingIPMenu = false
     @State private var isSavingInputs = false
+    @EnvironmentObject var viewController: ARDepthViewController
 
     @State private var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
     
     var body: some View {
         ZStack(alignment: .leading) {
-            arViewContainer
+            ARViewContainer()
                 .edgesIgnoringSafeArea(.all)
                 .onTapGesture {
                     if isSidebarOpen {
@@ -42,7 +54,7 @@ struct ContentView: View {
                 
                 Button(action: {
                     isScanning.toggle()
-                    arViewContainer.toggleScanning()
+                    viewController.toggleScanning()
                     
                 }) {
                     Text(isScanning ? "Stop Scanning" : "Start Scanning")
@@ -51,7 +63,12 @@ struct ContentView: View {
                         .foregroundColor(.white)
                         .cornerRadius(10)
                 }
-                .padding(.bottom, 40)
+                .padding(.bottom, 10)
+                Text("Num Scans: \(viewController.num_scans)")
+                    .padding()
+//                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
             }
             .navigationViewStyle(StackNavigationViewStyle())
             if isShowingIPMenu {
@@ -84,6 +101,9 @@ struct SidebarView: View {
     @Binding var selectedOption: String
     @Binding var isShowingIPMenu: Bool
     @Binding var isSavingInputs: Bool
+    @EnvironmentObject var viewController: ARDepthViewController
+
+
         
     var body: some View {
         VStack(alignment: .leading) {
@@ -113,18 +133,18 @@ struct SidebarView: View {
                 .padding()
             Button("Reset") {
                 self.isSavingInputs = false
-                arViewContainer.sendResetRequest()
+                viewController.sendResetRequest()
 
             }
             .padding()
             
             Button("Save Global Map") {
-                arViewContainer.sendSaveRequest()
+                viewController.sendSaveRequest()
             }
             .padding()
             
             Button(isSavingInputs ? "Stop Saving Inputs" : "Start Saving Inputs") {
-                arViewContainer.sendToggleSaveInputRequest()
+                viewController.sendToggleSaveInputRequest()
                 isSavingInputs.toggle()
             }
                 .padding()
@@ -136,11 +156,11 @@ struct SidebarView: View {
             .padding()
 
             Picker("Options", selection: $selectedOption) {
-                if arViewContainer.viewController.availableAlgorithms.isEmpty {
+                if viewController.availableAlgorithms.isEmpty {
                     Text("Loading...").tag("")
                 } else {
                     Text("").tag("")
-                    ForEach(arViewContainer.viewController.availableAlgorithms, id: \.self) { option in
+                    ForEach(viewController.availableAlgorithms, id: \.self) { option in
                         Text(option).tag(option)
                     }
                 }
@@ -148,11 +168,12 @@ struct SidebarView: View {
             .pickerStyle(.automatic)
             .padding()
             .onAppear {
-                arViewContainer.viewController.sendGetAlgorithmsRequest() // Request data when view appears
+                print("picker appeared")
+                viewController.sendGetAlgorithmsRequest() // Request data when view appears
             }
             .onChange(of: selectedOption) {
                 self.isSavingInputs = false
-                arViewContainer.changeAlgorithms(selectedOption)
+                viewController.changeAlgorithms(alg_str: selectedOption)
             }
 
             
@@ -168,6 +189,8 @@ struct SidebarView: View {
 struct IPMenu: View {
     @Binding var isShowing: Bool
     @Binding var selectedIP: String
+    @EnvironmentObject var viewController: ARDepthViewController
+
     
     var body: some View {
         ZStack {
@@ -191,7 +214,7 @@ struct IPMenu: View {
                 Button("Save") {
                     UserDefaults.standard.set(selectedIP, forKey: "SavedIP")
                     isShowing = false
-                    arViewContainer.updateIPAddress(selectedIP)
+                    viewController.setIPAddress(ip: selectedIP)
 
                 }
                 .padding()
@@ -213,35 +236,35 @@ struct IPMenu: View {
 }
 
 struct ARViewContainer: UIViewControllerRepresentable {
-    @State var viewController = ARDepthViewController()
+    @EnvironmentObject var viewController: ARDepthViewController
     
     func makeUIViewController(context: Context) -> ARDepthViewController {
         return viewController
     }
-
+    
     func updateUIViewController(_ uiViewController: ARDepthViewController, context: Context) {}
-    
-    func toggleScanning() {
-        viewController.toggleScanning()
-    }
-    
-    func updateIPAddress(_ ip: String) {
-        viewController.setIPAddress(ip: ip)
-    }
-    
-    func sendResetRequest() {
-        viewController.sendResetRequest()
-    }
-    func sendSaveRequest() {
-        viewController.sendSaveRequest()
-    }
-    func sendToggleSaveInputRequest() {
-        viewController.sendToggleSaveInputRequest()
-    }
-    func sendGetAlgorithmsRequest() {
-        viewController.sendGetAlgorithmsRequest()
-    }
-    func changeAlgorithms(_ alg_str: String) {
-        viewController.changeAlgorithms(alg_str: alg_str)
-    }
 }
+//    func toggleScanning() {
+//        viewController.toggleScanning()
+//    }
+//    
+//    func updateIPAddress(_ ip: String) {
+//        viewController.setIPAddress(ip: ip)
+//    }
+//    
+//    func sendResetRequest() {
+//        viewController.sendResetRequest()
+//    }
+//    func sendSaveRequest() {
+//        viewController.sendSaveRequest()
+//    }
+//    func sendToggleSaveInputRequest() {
+//        viewController.sendToggleSaveInputRequest()
+//    }
+//    func sendGetAlgorithmsRequest() {
+//        viewController.sendGetAlgorithmsRequest()
+//    }
+//    func changeAlgorithms(_ alg_str: String) {
+//        viewController.changeAlgorithms(alg_str: alg_str)
+//    }
+//}

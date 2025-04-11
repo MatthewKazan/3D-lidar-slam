@@ -27,7 +27,7 @@ def launch_setup(context, *args, **kwargs):
         Node(
             package='slam',
             executable='pub_sub',
-            name='slam_pub_sub',
+            # name='slam_pub_sub',
             output='screen',
             parameters=[{"algorithm": LaunchConfiguration('algorithm'), "config": LaunchConfiguration('config')}],
 
@@ -42,7 +42,15 @@ def launch_setup(context, *args, **kwargs):
                 'max_message_size': 104857600,  # Allow large message sizes (100MB)
                 'unregister_timeout': 1.0,
                 'retry_interval': 0.05,  # Reduce WebSocket retry time
-                'tcp_nodelay': True
+                'tcp_nodelay': True,
+                'qos_overrides_pub': {
+                    '/input_pointcloud': {
+                        'durability': 'TRANSIENT_LOCAL',
+                        'history': 'KEEP_LAST',  # or 'KEEP_LAST'
+                        'reliability': 'RELIABLE',
+                        'depth': 50  # if using KEEP_LAST
+                    }
+                },
             }],
         )
     ]

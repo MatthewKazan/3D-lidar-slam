@@ -20,7 +20,7 @@ class GenericHandler(Node, ABC):
         Initialize the GenericHandler.
         :param name: The name of the node.
         """
-        super().__init__(name)
+        super().__init__(node_name=name)
         self.data_transfer = data_transfer
 
     @abstractmethod
@@ -42,3 +42,4 @@ class GenericHandler(Node, ABC):
 
         writer.write(topic_name, serialize_message(cloud_msg),
                      self.get_clock().now().nanoseconds)
+        self.get_logger().info(f"Saved point cloud to {topic_name}")

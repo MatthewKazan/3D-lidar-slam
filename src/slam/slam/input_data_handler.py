@@ -7,7 +7,9 @@ from multiprocessing import Queue
 import rosbag2_py
 import sensor_msgs_py.point_cloud2 as pc2
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, \
+    DurabilityPolicy
+from rclpy.serialization import serialize_message
 from rclpy.service import SrvTypeResponse
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
@@ -30,9 +32,10 @@ class PointClouds2Subscriber(GenericHandler):
         """
         super().__init__('pointcloud_subscriber', data_transfer)
         qos_profile = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            # durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=10,
 
         )
 
@@ -66,6 +69,8 @@ class PointClouds2Subscriber(GenericHandler):
             self.data_transfer.pixel_depth_map_queue.put_nowait(points)
             if self.should_save_inputs:
                 self.save_point_cloud(self.input_writer, points, "/input_pointcloud")
+                # self.input_writer.write("/input_pointcloud", serialize_message(msg),
+                #      self.get_clock().now().nanoseconds)
 
             self.num_pcs += 1
             self.get_logger().debug(f"Added {len(points)} new points to queue.")
@@ -78,6 +83,8 @@ class PointClouds2Subscriber(GenericHandler):
         """
         Resets the subscriber node
         """
+        if self.input_writer is not None:
+            self.input_writer.close()
         self.num_pcs = 0
         self.input_writer = None
         self.should_save_inputs = False
@@ -114,11 +121,25 @@ class PointClouds2Subscriber(GenericHandler):
         self.should_save_inputs = not self.should_save_inputs
         if self.should_save_inputs:
             self.setup_input_rosbags()
+        else:
+            if self.input_writer is not None:
+                self.input_writer.close()
+                self.input_writer = None
+            self.get_logger().info("Closed input bag writer.")
 
         self.get_logger().info(f"Toggled saving inputs to {self.should_save_inputs}.")
 
         response.success = True
         response.message = f"Toggled saving inputs to {self.should_save_inputs}."
         return response
+
+    def destroy_node(self):
+        """
+        Override the destroy_node method to stop the processor handler before destroying the node.
+        """
+        self.get_logger().info("Destroying PointClouds2Subscriber node...")
+        if self.input_writer is not None:
+            self.input_writer.close()
+        super().destroy_node()
 
 

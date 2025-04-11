@@ -1,7 +1,12 @@
 import multiprocessing
 from typing import List, Callable, Type, Generic, TypeVar, Any
 
+import rclpy
+import std_msgs.msg
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, \
+    DurabilityPolicy
+from std_msgs.msg import Empty
 from std_srvs.srv import Trigger
 from custom_interfaces.srv import GetAlgorithmsList
 from custom_interfaces.srv import SetAlgorithm
@@ -22,39 +27,34 @@ class ServiceMapping(Generic[ServiceT]):
     def callback(self, request, response) -> Any:
         return self.callback_fn(request, response)
 
-class ResetServiceMapping(ServiceMapping):
+class ResetHandler(Node):
     """
     Map a reset to a specific instance of its callback functions.
     """
-    def __init__(self, objs_to_reset, event: multiprocessing.Event):
-        super().__init__("/reset", Trigger, self.callback)
-        self.objs_to_reset = objs_to_reset
-        self.event = event
+    def __init__(self, objs_to_reset, node_name: str = 'reset_handler'):
+        super().__init__(node_name)
 
-    def reset(self):
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            # durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+
+        )
+
+        self.subscription = self.create_subscription(
+            std_msgs.msg.Empty, '/reset', self.reset, qos_profile,
+        )
+        # super().__init__("/reset", Trigger, self.callback)
+        self.objs_to_reset = objs_to_reset
+
+    def reset(self, msg):
         """
         Reset the objects associated with this service mapping and set the event
         to signal that a reset has occurred to other processes or threads.
         """
-        self.event.set()
         for obj in self.objs_to_reset:
             obj.reset()
-
-
-    def callback(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """
-        Callback function to handle reset requests.
-
-        :param request: The request object.
-        :param response: The response object.
-
-        :return: The response object with success status and message.
-        """
-        self.reset()
-
-        response.success = True
-        response.message = "Reset successful"
-        return response
 
 
 class SimpleServiceHandler(Node):
@@ -62,12 +62,12 @@ class SimpleServiceHandler(Node):
     Class to receive and delegate simple service requests
     """
 
-    def __init__(self, services: List[ServiceMapping]):
+    def __init__(self, services: List[ServiceMapping], node_name: str = 'service_handler'):
         """
         Initialize the SimpleServiceHandler.
         :param services: A list of mappings for service names to a specific instance of its callback functions.
         """
-        super().__init__('simple_service_handler')
+        super().__init__(node_name)
         self.service_callback_map = {}
         for service_callback in services:
             self.create_service(service_callback.service_type, service_callback.service_name, service_callback.callback)
@@ -77,10 +77,10 @@ class SetAlgorithmServiceMapping(ServiceMapping):
     """
     Map a set_algorithm to a specific instance of its callback functions.
     """
-    def __init__(self, reset_service_mapping: ResetServiceMapping, callback: Callable[[Any, Any], Any]):
+    def __init__(self, callback: Callable[[Any, Any], Any]):
         super().__init__("/set_algorithm", SetAlgorithm, self.callback)
-        self.reset_service_mapping = reset_service_mapping
         self.callback_fn = callback
+
 
     def callback(self, request, response) -> SetAlgorithm.Response:
         """
@@ -91,7 +91,14 @@ class SetAlgorithmServiceMapping(ServiceMapping):
 
         :return: The response object with success status and message.
         """
-        self.reset_service_mapping.reset()
+        node = Node('one_off_publisher')
+        publisher = node.create_publisher(Empty, '/reset', 10)
+        msg = Empty()
+        publisher.publish(msg)
+        node.get_logger().info("Published reset.")
+        # Give it a short time to process the publish
+        rclpy.spin_once(node, timeout_sec=0.5)
+        node.destroy_node()
         response = self.callback_fn(request, response)
         return response
 

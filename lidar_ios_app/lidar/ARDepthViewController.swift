@@ -10,14 +10,42 @@ import ARKit
 import Starscream
 
 struct Point: Codable {
-    let x: Float
-    let y: Float
-    let z: Float
+    var x: Float
+    var y: Float
+    var z: Float
 }
 
-import UIKit
-import ARKit
-import Starscream  // ✅ Ensure Starscream is imported for WebSocket
+struct CameraIntrinsics: Codable {
+    let lidarWidth: Float
+    let lidarHeight: Float
+    var refWidth: Float = 1920
+    var refHeight: Float = 1440
+    
+    let scaleX: Float
+    let scaleY: Float
+    
+    var fx: Float
+    var fy: Float
+    var cx: Float
+    var cy: Float
+    
+    init(lidarWidth: Float, lidarHeight: Float, intrinsics: simd_float3x3) {
+        self.lidarWidth = lidarWidth
+        self.lidarHeight = lidarHeight
+        self.scaleX = self.lidarWidth / self.refWidth
+        self.scaleY = self.lidarHeight / self.refHeight
+        
+        let fx = intrinsics.columns.0.x
+        let fy = intrinsics.columns.1.y
+        let cx = intrinsics.columns.2.x
+        let cy = intrinsics.columns.2.y
+        self.fx = fx * self.scaleX
+        self.fy = fy * self.scaleY
+        self.cx = cx * self.scaleX
+        self.cy = cy * self.scaleY
+    }
+}
+
 
 /// **ARDepthViewController**
 /// This class manages an **ARKit-based LiDAR depth capture** session, processes the depth data,
@@ -32,13 +60,14 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     var arView: ARSCNView!
     var capturedPointCloud: [SIMD3<Float>] = []
     var isScanning = false
-    var scanningTimer: Timer?
+    var scanningTimer: DispatchSourceTimer?//Timer?
     var socket: WebSocket?
     var isConnected = false  // ✅ Track WebSocket connection status
     var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? "172.20.10.7"
-    var num_scans = 0
+    @Published var num_scans = 0
     @Published var availableAlgorithms: [String] = []
     var isLoading: Bool = false
+    var cameraIntrinsics: CameraIntrinsics!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -62,15 +91,21 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         let configuration = ARWorldTrackingConfiguration()
         configuration.frameSemantics = .sceneDepth
         // Delay to ensure ARKit fully resets
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
-        }
+        self.arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
+        
         num_scans = 0
-
+        let sessionStartTime = CACurrentMediaTime()
         isScanning = true
-        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            self.capturePointCloud()
+//        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
+//            self.capturePointCloud(sessionStartTime: sessionStartTime)
+//        }
+        scanningTimer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInitiated))
+        scanningTimer?.schedule(deadline: .now(), repeating: 0.25)
+        scanningTimer?.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            self.capturePointCloud(sessionStartTime: sessionStartTime)
         }
+        scanningTimer?.resume()
     }
 
     /// Stops LiDAR scanning and terminates point cloud transmission.
@@ -78,7 +113,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         if !isScanning { return }
         isScanning = false
         self.arView.session.pause()
-        scanningTimer?.invalidate()
+        scanningTimer?.cancel()
         scanningTimer = nil
 //        arView.session.pause()
 
@@ -92,37 +127,40 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     // MARK: - **LiDAR Point Cloud Capture**
       
     /// Captures the current **LiDAR depth map** from ARKit and processes it into a point cloud.
-    func capturePointCloud() {
-        guard isScanning, let frame = arView.session.currentFrame, let depthData = frame.sceneDepth?.depthMap else {
+    func capturePointCloud(sessionStartTime: CFTimeInterval) {
+        guard isScanning, let frame = self.arView.session.currentFrame, frame.timestamp >= sessionStartTime, let depthData = frame.sceneDepth?.depthMap else {
             print("Depth data is unavailable.")
             return
         }
-        guard num_scans >= 1 else {
-            num_scans += 1
-            return  // Skip the first frame
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.uploadPointCloud(from: depthData)
         }
-        uploadPointCloud(from: depthData)
     }
     
     /// Converts a **CVPixelBuffer depth map** into a **PointCloud2 format** and sends it via WebSocket.
     func uploadPointCloud(from depthData: CVPixelBuffer) {
         CVPixelBufferLockBaseAddress(depthData, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(depthData, .readOnly) }
-
+        let currentTime = Date()
+        let timeInterval = currentTime.timeIntervalSince1970
+        
         let width = Int(CVPixelBufferGetWidth(depthData))
         let height = Int(CVPixelBufferGetHeight(depthData))
         let depthPointer = unsafeBitCast(CVPixelBufferGetBaseAddress(depthData), to: UnsafeMutablePointer<Float32>.self)
-
+        self.cameraIntrinsics = CameraIntrinsics(lidarWidth: Float(width), lidarHeight: Float(height), intrinsics: self.arView.session.currentFrame!.camera.intrinsics)
         var pointData = Data()
         var validPointsCount = 0
 
         for y in 0..<height {
             for x in 0..<width {
                 let depth = depthPointer[y * width + x]
-                if depth > 0 && Bool.random() {
-                    var xVal = Float(x)
-                    var yVal = Float(y)
-                    var zVal = depth
+                if depth > 0{// && Bool.random() {
+                    let point = projecPixelTo3D(x: Float(x), y: Float(y), z: depth)
+                    var xVal = Float(point.x)//Float(point.x)
+                    var yVal = Float(point.y)//Float(point.y)
+                    var zVal = Float(point.z)
+//                    print(point)
                     withUnsafeBytes(of: &xVal) { pointData.append(contentsOf: $0) }
                     withUnsafeBytes(of: &yVal) { pointData.append(contentsOf: $0) }
                     withUnsafeBytes(of: &zVal) { pointData.append(contentsOf: $0) }
@@ -132,8 +170,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         }
 
         let base64EncodedData = pointData.base64EncodedString()
-        let currentTime = Date()
-        let timeInterval = currentTime.timeIntervalSince1970
+
         let secs = Int32(timeInterval)
         let nsecs = Int32((timeInterval - Double(secs)) * 1_000_000_000)
 
@@ -158,7 +195,9 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             "data": base64EncodedData,
             "is_dense": true
         ]
-        num_scans+=1
+        DispatchQueue.main.async {
+            self.num_scans += 1
+        }
         print(num_scans)
         self.publishToTopic(msg: pointCloudMessage, topic: "/input_pointcloud")
         let newTime = Date()
@@ -201,7 +240,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     func sendResetRequest() {
         self.setIPAddress(ip: self.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.sendServiceRequest(service: "/reset")
+            self.publishToTopic(msg: [:], topic: "/reset")
         }
     }
     
@@ -329,6 +368,12 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         self.isLoading = false
         print(self.availableAlgorithms)
         
+    }
+    
+    func projecPixelTo3D(x: Float, y: Float, z: Float) -> Point {
+        let xn = (x - self.cameraIntrinsics.cx) * z / self.cameraIntrinsics.fx
+        let yn = (y - self.cameraIntrinsics.cy) * z / self.cameraIntrinsics.fy
+        return Point(x: xn, y: yn, z: z)
     }
     
    

@@ -1,6 +1,8 @@
 import asyncio
 import os
 import queue
+import threading
+import time
 
 import rosbag2_py
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, \
@@ -35,12 +37,13 @@ class PointCloudPublisher(GenericHandler):
                                                 qos_profile)
 
 
-        self.timer = self.create_timer(0.1, self.check_and_publish)
+        # self.timer = self.create_timer(0.1, self.check_and_publish)
 
         self.bag_dir_path = str(os.path.join(PATH_TO_ROSBAGS, 'global_maps'))
         self.global_writer = None
         self.global_map_ref = None
-
+        self.publisher_thread = threading.Thread(target=self.check_and_publish)
+        self.publisher_thread.start()
         self.get_logger().info(
             "PointCloud publisher started.")
 
@@ -113,13 +116,22 @@ class PointCloudPublisher(GenericHandler):
         """
         Check if there is new point cloud data in the queue and publish it.
         """
-        with self.data_transfer.global_map_lock:
-            try:
-                self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
-            except queue.Empty:
-                # No new data to publish
-                return
-            if len(self.global_map_ref) > 0:
-                self.publish_point_cloud(self.global_map_ref)
+        while not self.data_transfer.stop_event.is_set():
+            with self.data_transfer.global_map_lock:
+                try:
+                    self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
+                except queue.Empty:
+                    # No new data to publish
+                    continue
+                if len(self.global_map_ref) > 0:
+                    self.publish_point_cloud(self.global_map_ref)
+            time.sleep(.1)
+
+    def destroy_node(self):
+        """
+        Override the destroy_node method to stop the publisher thread before destroying the node.
+        """
+        self.publisher_thread.join(5)
+        super().destroy_node()
 
 

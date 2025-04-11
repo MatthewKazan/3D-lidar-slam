@@ -29,7 +29,7 @@ class DGRProcessor(ProcessPointClouds):
 
     def __init__(self,
         config_path: str,
-        reset_event: multiprocessing.Event,
+        # reset_event: multiprocessing.Event,
         data_transfer: DataTransfer,
     ):
         """
@@ -41,7 +41,7 @@ class DGRProcessor(ProcessPointClouds):
         """
         super().__init__(
             config_path,
-            reset_event,
+            # reset_event,
             data_transfer,
             rclpy.logging.get_logger("DGR processor")
         )
@@ -53,10 +53,11 @@ class DGRProcessor(ProcessPointClouds):
             sys.argv = sys.argv[:ros_args_index]  # Remove ROS arguments
         dgr_config = get_config()
         dgr_config.weights = self.config['dgr_config']['weights']
+        self.pcs_to_align_with = []
 
         self.dgr = dgr.DeepGlobalRegistration(dgr_config, device='cpu')
 
-    def construct_global_map(self, points: np.array) -> None:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=.02) -> None:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
@@ -64,28 +65,32 @@ class DGRProcessor(ProcessPointClouds):
 
         :return: The new point cloud transformed to align with the global map
         """
-        point_cloud = o3d.geometry.PointCloud()
-        point_cloud.points = o3d.utility.Vector3dVector(points)
-        # Can this be done quickly?
-        # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
-
+        # self.logger.info(f"DGR")
+        # point_cloud = o3d.geometry.PointCloud()
+        # point_cloud.points = o3d.utility.Vector3dVector(points)
+        # # Can this be done quickly?
+        # # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
+        #
+        # o3d_global_map = o3d.geometry.PointCloud()
+        # o3d_global_map.points = o3d.utility.Vector3dVector(self.global_map)
         o3d_global_map = o3d.geometry.PointCloud()
-        o3d_global_map.points = o3d.utility.Vector3dVector(self.global_map)
+        for pc in self.pcs_to_align_with:
+            o3d_global_map += pc
 
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
         self.previous_transformation.append(dgr_result_transformation)
 
-        point_cloud = point_cloud.transform(dgr_result_transformation)
-        self.global_map = np.asarray((point_cloud + o3d_global_map).voxel_down_sample(0.025).points)
+        point_cloud = point_cloud.voxel_down_sample(voxel_size).transform(dgr_result_transformation)
+        self.global_map += point_cloud
 
-    def downsample_global_map(self) -> np.ndarray:
-        """
-        Downsample the global map to reduce the number of points. maybe unnecessary
-
-        :return: The downsampled global map
-        """
-        point_cloud = o3d.geometry.PointCloud()
-        point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
-        point_cloud = point_cloud.voxel_down_sample(0.05)
-        self.global_map = np.asarray(point_cloud.points)
-        return point_cloud.points
+    # def downsample_global_map(self) -> np.ndarray:
+        # """
+        # Downsample the global map to reduce the number of points. maybe unnecessary
+        #
+        # :return: The downsampled global map
+        # """
+        # point_cloud = o3d.geometry.PointCloud()
+        # point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
+        # point_cloud = point_cloud.voxel_down_sample(0.05)
+        # self.global_map = np.asarray(point_cloud.points)
+        # return point_cloud.points
