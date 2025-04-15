@@ -4,7 +4,6 @@ channels:
   - conda-forge
   - nvidia
   - pytorch
-  - defaults
 dependencies:
   - aiohappyeyeballs=2.6.1=pyhd8ed1ab_0
   - aiohttp=3.11.13=py39hefdd603_0
