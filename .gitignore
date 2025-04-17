@@ -8,5 +8,6 @@ lidar/lidar.xcodeproj/project.xcworkspace/xcshareddata/
 lidar_server
 log/
 
-src/libs/libs/
+src/libs/libs/*
 !src/libs/libs/NDT_Transformer
+/src/libs/libs/ARKitScenes/
