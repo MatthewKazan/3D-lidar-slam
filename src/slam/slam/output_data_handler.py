@@ -3,8 +3,11 @@ import os
 import queue
 import threading
 import time
+from typing import Any
 
+import rclpy
 import rosbag2_py
+from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, \
     HistoryPolicy
 from rclpy.service import SrvTypeResponse
@@ -16,6 +19,7 @@ from scripts.paths import PATH_TO_ROSBAGS, generate_unique_bag_name
 
 from scripts.data_transfer import DataTransfer
 from slam.generic_data_handler import GenericHandler
+import open3d as o3d
 
 
 class PointCloudPublisher(GenericHandler):
@@ -71,7 +75,7 @@ class PointCloudPublisher(GenericHandler):
 
         cloud_msg = pc2.create_cloud_xyz32(header, points_np)
         self.publisher_.publish(cloud_msg)
-        self.get_logger().info(
+        self.get_logger().debug(
             f"Published {len(points_np)} points to /global_map.")
 
     def save_map_callback(self, request, response) -> SrvTypeResponse:
@@ -105,7 +109,12 @@ class PointCloudPublisher(GenericHandler):
             )
         )
         self.save_point_cloud(writer=self.global_writer, points=self.global_map_ref, topic_name='/global_map')
-        self.get_logger().info(f"Global map saved to {self.bag_dir_path}.")
+        self.get_logger().info(f"Global map saved to {global_bag_path}.")
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(self.global_map_ref)
+        o3d.io.write_point_cloud(os.path.join(global_bag_path,"global_map.ply"), point_cloud)
+        del self.global_writer
+
 
         response.success = True
         response.message = "Global map saved successfully."
@@ -135,3 +144,14 @@ class PointCloudPublisher(GenericHandler):
         super().destroy_node()
 
 
+def one_shot_publisher(msg: Any, topic_name: str):
+    """
+    A one-shot publisher that publishes a single point cloud to the /global_map topic.
+    """
+    node = Node('one_off_publisher')
+    publisher = node.create_publisher(msg.__type__, topic_name, 10)
+    publisher.publish(msg)
+    node.get_logger().info(f"Published to {topic_name}.")
+    # Give it a short time to process the publish
+    rclpy.spin_once(node, timeout_sec=0.5)
+    node.destroy_node()

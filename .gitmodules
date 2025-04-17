@@ -4,6 +4,3 @@
 [submodule "libs/MinkowskiEngine"]
 	path = src/libs/libs/MinkowskiEngine
 	url = https://github.com/NVIDIA/MinkowskiEngine.git
-[submodule "src/libs/libs/pointnet2"]
-	path = src/libs/libs/pointnet2
-	url = https://github.com/charlesq34/pointnet2.git

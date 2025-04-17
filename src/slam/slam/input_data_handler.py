@@ -62,7 +62,7 @@ class PointClouds2Subscriber(GenericHandler):
             receive_time = time.time()
             sent_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
             processing_delay = receive_time - sent_time
-            self.get_logger().info(
+            self.get_logger().debug(
                 f"transport delay: {processing_delay:.6f} sec")
 
             points = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
@@ -74,7 +74,8 @@ class PointClouds2Subscriber(GenericHandler):
 
             self.num_pcs += 1
             self.get_logger().debug(f"Added {len(points)} new points to queue.")
-            self.get_logger().info(f"Queue size: {self.num_pcs}")
+            if self.num_pcs % 20 == 0:
+                self.get_logger().info(f"Queue size: {self.num_pcs}")
 
         except queue.Full:
             self.get_logger().warn("PointCloud queue is full! Dropping frame.")
@@ -123,7 +124,7 @@ class PointClouds2Subscriber(GenericHandler):
             self.setup_input_rosbags()
         else:
             if self.input_writer is not None:
-                self.input_writer.close()
+                del self.input_writer
                 self.input_writer = None
             self.get_logger().info("Closed input bag writer.")
 
@@ -139,7 +140,7 @@ class PointClouds2Subscriber(GenericHandler):
         """
         self.get_logger().info("Destroying PointClouds2Subscriber node...")
         if self.input_writer is not None:
-            self.input_writer.close()
+            del self.input_writer
         super().destroy_node()
 
 

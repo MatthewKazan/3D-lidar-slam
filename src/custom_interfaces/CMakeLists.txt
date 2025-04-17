@@ -5,7 +5,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 # Explicitly set the Python executable inside the Conda/Mamba environment
-set(Python3_EXECUTABLE /Users/mattkazan/miniconda3/envs/mink/bin/python)
+set(Python3_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python3")
 
 # Now find Python
 
@@ -13,6 +13,7 @@ set(Python3_EXECUTABLE /Users/mattkazan/miniconda3/envs/mink/bin/python)
 set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
 set(PYTHON_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
 set(PYTHON_LIBRARY ${Python3_LIBRARIES})
+
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
 message(STATUS "Python library: ${PYTHON_LIBRARY}")

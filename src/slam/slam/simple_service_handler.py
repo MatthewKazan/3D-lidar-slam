@@ -1,13 +1,10 @@
-import multiprocessing
 from typing import List, Callable, Type, Generic, TypeVar, Any
 
 import rclpy
 import std_msgs.msg
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, \
-    DurabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Empty
-from std_srvs.srv import Trigger
 from custom_interfaces.srv import GetAlgorithmsList
 from custom_interfaces.srv import SetAlgorithm
 
@@ -45,7 +42,6 @@ class ResetHandler(Node):
         self.subscription = self.create_subscription(
             std_msgs.msg.Empty, '/reset', self.reset, qos_profile,
         )
-        # super().__init__("/reset", Trigger, self.callback)
         self.objs_to_reset = objs_to_reset
 
     def reset(self, msg):

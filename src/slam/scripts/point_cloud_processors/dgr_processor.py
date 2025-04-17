@@ -7,10 +7,9 @@ import open3d as o3d
 import rclpy.logging
 
 from scripts.point_cloud_processors.generic_point_cloud_processor import ProcessPointClouds
-
 from scripts.data_transfer import DataTransfer
-
 from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK
+from scripts.state import state
 
 # Set working directory to where DGR expects to be
 # There must be a better way to do this
@@ -28,20 +27,15 @@ class DGRProcessor(ProcessPointClouds):
     """
 
     def __init__(self,
-        config_path: str,
-        # reset_event: multiprocessing.Event,
         data_transfer: DataTransfer,
     ):
         """
         Initialize the point cloud processor with settings from a YAML file.
         Should be run in a separate process since it's a long-running task.
 
-        :param config_path: Path to the YAML configuration file.
         :param reset_event: Thread-safe event triggered on database reset.
         """
         super().__init__(
-            config_path,
-            # reset_event,
             data_transfer,
             rclpy.logging.get_logger("DGR processor")
         )
@@ -52,7 +46,7 @@ class DGRProcessor(ProcessPointClouds):
             ros_args_index = sys.argv.index("--ros-args")
             sys.argv = sys.argv[:ros_args_index]  # Remove ROS arguments
         dgr_config = get_config()
-        dgr_config.weights = self.config['dgr_config']['weights']
+        dgr_config.weights = state.config['dgr_config']['weights']
         self.pcs_to_align_with = []
 
         self.dgr = dgr.DeepGlobalRegistration(dgr_config, device='cpu')
@@ -77,11 +71,14 @@ class DGRProcessor(ProcessPointClouds):
         for pc in self.pcs_to_align_with:
             o3d_global_map += pc
 
+        point_cloud = point_cloud.voxel_down_sample(voxel_size)
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
-        self.previous_transformation.append(dgr_result_transformation)
 
-        point_cloud = point_cloud.voxel_down_sample(voxel_size).transform(dgr_result_transformation)
+        self.previous_transformation.append(dgr_result_transformation)
+        point_cloud = point_cloud.transform(dgr_result_transformation)
         self.global_map += point_cloud
+
+        return point_cloud
 
     # def downsample_global_map(self) -> np.ndarray:
         # """

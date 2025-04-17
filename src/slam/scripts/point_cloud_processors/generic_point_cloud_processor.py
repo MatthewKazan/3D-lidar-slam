@@ -12,6 +12,8 @@ import open3d as o3d
 from scripts.data_transfer import DataTransfer
 from scripts.point_cloud_processors.pose_graph import PoseGraphGTSAMICP
 
+from scripts.paths import CONFIG_PATH
+
 
 class ProcessPointClouds(ABC):
     """
@@ -20,99 +22,28 @@ class ProcessPointClouds(ABC):
     """
 
     def __init__(self,
-        config_path: str,
-        # reset_event: multiprocessing.Event,
         data_transfer: DataTransfer,
-        logger=None,
+        logger,
     ):
         """
         Initialize the point cloud processor with settings from a YAML file.
-        Should be run in a separate process since it's a long-running task.
 
         :param config_path: Path to the YAML configuration file.
-        :param reset_event: Thread-safe event triggered on database reset.
+        :param data_transfer: Thread-safe data object to send and receive pcs.
         """
         self.logger = logger
 
-        # Declare instance variables with default values
-        self.WIDTH = None
-        self.HEIGHT = None
-        self.ref_width = None
-        self.ref_height = None
-        self.fx = None
-        self.fy = None
-        self.cx = None
-        self.cy = None
-
-        # Load YAML Configuration
-        self.config = None
-        self.load_config(config_path)
-
-        self.global_map = None
+        self.global_map = o3d.geometry.PointCloud()
         self.point_clouds_in_map = 0
 
         self.data_transfer = data_transfer
-
-        # with self.data_transfer.global_map_lock:
-        #     if not self.data_transfer.global_map_queue.empty():
-        #         self.global_map = self.data_transfer.global_map
 
         self.previous_transformation = [np.identity(4)]
 
         self.start_time = None
         self.pcs_to_align_with = []
-        # self.reset_event = reset_event
 
         self.logger.info(f"Using {self.__class__.__name__} for point cloud processing")
-
-    def load_config(self, config_path: str) -> None:
-        """
-        Loads configuration parameters of the lidar scanner from a YAML file.
-
-        :param config_path: Path to the YAML configuration file.
-        """
-        with open(config_path, 'r') as file:
-            self.config = yaml.safe_load(file)
-
-        # Camera Parameters
-        self.WIDTH = self.config['camera']['width']
-        self.HEIGHT = self.config['camera']['height']
-        self.ref_width = self.config['camera']['ref_width']
-        self.ref_height = self.config['camera']['ref_height']
-        self.fx = self.config['camera']['fx']
-        self.fy = self.config['camera']['fy']
-        self.cx = self.config['camera']['cx']
-        self.cy = self.config['camera']['cy']
-
-        # Scale intrinsic parameters to the new resolution
-        scale_x = self.WIDTH / self.ref_width
-        scale_y = self.HEIGHT / self.ref_height
-        self.fx *= scale_x
-        self.fy *= scale_y
-        self.cx *= scale_x
-        self.cy *= scale_y
-
-        self.logger.info(
-            f"Loaded camera parameters: WIDTH={self.WIDTH}, HEIGHT={self.HEIGHT}, fx={self.fx}, fy={self.fy}, cx={self.cx}, cy={self.cy}")
-
-
-    def project_pixel_to_3d(self, points: list) -> np.ndarray:
-        """
-        Convert pixel coordinates to 3D coordinates in meters using the camera intrinsics.
-
-        :param points: X,Y pixel coordinate, z meters
-
-        :return: X, Y, Z coordinates in meters
-        """
-        points_3d = np.zeros((len(points), 3), dtype=np.float32)
-        for i, point in enumerate(points):
-            x, y, z = point
-            # x = (x - self.cx) * z / self.fx
-            # y = (y - self.cy) * z / self.fy
-            points_3d[i]=[x, y, z]
-
-        return points_3d
-
 
     def process(self) -> Optional[o3d.geometry.PointCloud]:
         """
@@ -165,7 +96,7 @@ class ProcessPointClouds(ABC):
         Reset the point cloud processor.
         """
         self.logger.info("Resetting processor")
-        self.global_map = None
+        self.global_map = o3d.geometry.PointCloud()
         self.point_clouds_in_map = 0
         self.previous_transformation = [np.identity(4)]
         self.start_time = None
@@ -186,16 +117,17 @@ class ProcessPointClouds(ABC):
             pc = keyframe['point_cloud']
             # pc = pc.transform(T)
 
-            self.global_map += pc
+            self.global_map += pc.voxel_down_sample(0.02)
             self.point_clouds_in_map += 1
             self.previous_transformation.append(T)
+            self.global_map = self.global_map
 
             if i > len(keyframes) - 10:
                 self.pcs_to_align_with.append(pc)
 
 
         # self.global_map = transformed_clouds
-        self.logger.info(f"Global map rebuilt from {len(keyframes)} keyframes")
+        self.logger.debug(f"Global map rebuilt from {len(keyframes)} keyframes")
 
     @abstractmethod
     def construct_global_map(self, points: np.array) -> o3d.geometry.PointCloud:

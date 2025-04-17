@@ -1,6 +1,5 @@
 import multiprocessing
 import queue
-import threading
 
 import rclpy.logging
 
@@ -51,6 +50,7 @@ class DataTransfer:
                 "Queues already closed or not initialized")
             return
         self.reset()
+        self.stop_event.set()
         self.pixel_depth_map_queue.close()
         self.global_map_queue.close()
         self.pixel_depth_map_queue.join_thread()
@@ -59,7 +59,3 @@ class DataTransfer:
         self.global_map_queue = None
         rclpy.logging.get_logger("data_transfer").info(
             "Queues closed and joined")
-
-
-if __name__ == "__main__":
-    pass

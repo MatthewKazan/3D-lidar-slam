@@ -242,8 +242,26 @@ method in the `process_point_clouds.py` file to return an instance of the new cl
    rm -rf build install log
    colcon build --symlink-install --cmake-args -DPython3_EXECUTABLE=$(which python)
    ```
-   -  'Service type support not from this implementation. Got: Could not load library libcustom_interfaces__rosidl_typesupport_introspection_c.dylib...'
-      This seems to be an issue with the mamba robostack env, copy the dylib files from the install directory to your mamba env with:
-        ```bash
-         cp -v install/**/lib/*.dylib <path to mamba env>/lib/
+-  'Service type support not from this implementation. Got: Could not load library libcustom_interfaces__rosidl_typesupport_introspection_c.dylib...'
+   This seems to be an issue with the mamba robostack env, copy the dylib files from the install directory to your mamba env with:
+     ```bash
+      cp -v install/**/lib/*.dylib <path to mamba env>/lib/
+- ```bash
+    from MinkowskiEngineBackend._C import (
+     ImportError: dlopen(<path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/_C.cpython-39-darwin.so...
    ```
+  This error like the error above is due to weird linker issues I think are specific to mac, haven't figured out
+  exactly whats going on but this can be fixed by running the following commands:
+  ```bash
+  otool -l <path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/_C.cpython-39-darwin.so | grep -A2 LC_RPATH
+   ```
+  Then based on the lc paths it shows you delete all of them with
+  ```bash
+    install_name_tool -delete_rpath <LC_PATH> <path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/_C.cpython-39-darwin.so
+    ```
+    Then run the otool command again to ensure they are gone.
+   Then add the correct rpath with
+   ```bash
+    install_name_tool -add_rpath <correct_path> <path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/_C.cpython-39-darwin.so
+    ```
+  The correct path for me was just `<path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/`

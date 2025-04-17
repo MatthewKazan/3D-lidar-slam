@@ -1,7 +1,9 @@
+import multiprocessing
 import queue
 import threading
 import time
-from typing import Callable
+import random
+from typing import Callable, Optional
 import open3d as o3d
 
 import numpy as np
@@ -9,54 +11,25 @@ import gtsam
 import rclpy.logging
 from gtsam import Pose3, Rot3
 import traceback
+from sklearn.metrics.pairwise import cosine_similarity
 
+from scripts.point_cloud_processors.ndt_transformer import \
+    NDTTransformer
 
-def pose_from_matrix(matrix):
-    """Convert a 4x4 numpy array to a GTSAM Pose3 object."""
-    return Pose3(Rot3(matrix[:3, :3]), gtsam.Point3(matrix[:3, 3]))
+from scripts.point_cloud_processors.utils.gtsam_utils import Submap, \
+    pose_from_matrix
+from scripts.point_cloud_processors.utils.open3d_utils import \
+    compute_icp_transformation
 
-def cosine_similarity(desc1: np.ndarray, desc2: np.ndarray) -> float:
-    """
-    Compute cosine similarity between two descriptors.
-    """
-    return np.dot(desc1, desc2) / (np.linalg.norm(desc1) * np.linalg.norm(desc2) + 1e-8)
-
-def compute_loop_transformation(source_cloud, target_cloud, t_source, t_target,
-    t_init, voxel_size=0.02) -> np.ndarray:
-    """
-    Align two point clouds using RANSAC and then ICP.
-
-    :param source_cloud: The new point cloud to align
-    :param target_cloud: The global map to align the new point cloud with
-    :param voxel_size: The voxel size for downsampling the point clouds
-
-    :return: The 4x4 transformation matrix to align the new point cloud with the global map
-    """
-    # t_init = np.linalg.inv(t_source) @ t_target
-
-    # source_cloud_o3d = o3d.geometry.PointCloud()
-    # source_cloud_o3d.points = o3d.utility.Vector3dVector(source_cloud)
-    source_cloud.voxel_down_sample(voxel_size)
-    #
-    # # target_cloud_o3d = o3d.geometry.PointCloud()
-    # # target_cloud_o3d.points = o3d.utility.Vector3dVector(target_cloud)
-    target_cloud.voxel_down_sample(voxel_size)
-
-    # Align with ICP
-    result_icp = o3d.pipelines.registration.registration_icp(
-        source_cloud, target_cloud,
-        max_correspondence_distance=voxel_size * 2.5,
-        init=t_init,
-        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-        criteria=o3d.pipelines.registration.ICPConvergenceCriteria(
-            max_iteration=1000,
-            relative_fitness=1e-6,
-            relative_rmse=1e-6
-        )
-    )
-    rclpy.logging.get_logger("pose_graph").info(f'Loop Closure Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}')
-
-    return result_icp.transformation
+def _show(pcs):
+    o3d_pcs = []
+    for pc in pcs:
+        pc_o3d = o3d.geometry.PointCloud()
+        pc_o3d.points = o3d.utility.Vector3dVector(pc)
+        pc_o3d.paint_uniform_color([random.random(), random.random(), random.random()])
+        o3d_pcs.append(pc_o3d)
+    rclpy.logging.get_logger("pose_graph").info(f"Showing {len(o3d_pcs)} point clouds")
+    o3d.visualization.draw_geometries(o3d_pcs)
 
 
 class PoseGraphGTSAMICP:
@@ -64,18 +37,16 @@ class PoseGraphGTSAMICP:
     def __init__(self,
         on_optimization_complete,
         trans_thresh: float = 0.5,
-        rot_thresh_deg: float = 10.0,
-        loop_closure_similarity_threshold: float = .8,
+        rot_thresh_deg: float = 7,
+        loop_closure_similarity_threshold: float = .95,
         optimization_frequency: int = 5,
-        min_keyframe_gap: int = 10,
+        min_keyframe_gap: int = 20,
     ):
         """
-
         :param trans_thresh: Translation threshold for adding keyframe, in meters
         :param rot_thresh_deg: Rotation threshold for adding keyframe, in degrees
         """
-        self.last_keyframe_pose = Pose3()
-        self.current_pose = Pose3()
+        self.prev_keyframe_pose = np.eye(4)
         self.trans_thresh = trans_thresh
         self.rot_thresh_deg = rot_thresh_deg
         self.keyframes = []
@@ -88,62 +59,60 @@ class PoseGraphGTSAMICP:
         self.graph = gtsam.NonlinearFactorGraph()
         self.initial_estimates = gtsam.Values()
         odom_sigmas = np.array(
-            [0.2, 0.2, 0.2, 0.1, 0.1, 0.1])  # in meters and radians
+            [0.3, 0.3, 0.3, 0.1, 0.1, 0.1])  # in meters and radians
         self.odom_noise = gtsam.noiseModel.Diagonal.Sigmas(odom_sigmas)
-        loop_sigmas = np.array([0.1, 0.1, 0.1, 0.05, 0.05, 0.05])
-        self.loop_noise = gtsam.noiseModel.Diagonal.Sigmas(loop_sigmas)
-
+        loop_sigmas = np.array([.02, .02, .02, .01, .01, .01])  # in meters and radians
+        # self.loop_noise = gtsam.noiseModel.Diagonal.Sigmas(loop_sigmas)
+        base = gtsam.noiseModel.Diagonal.Sigmas(loop_sigmas)
+        self.loop_noise = gtsam.noiseModel.Robust.Create(
+            gtsam.noiseModel.mEstimator.Huber(1.345), base
+        )
         self.loop_closure_similarity_threshold = loop_closure_similarity_threshold
         self.optimization_frequency = optimization_frequency
         self.MIN_KEYFRAME_GAP = min_keyframe_gap
 
         self.optimized_global_map = None
-        # self.processor_thread = threading.Thread(target=self.optimization_loop)
-
-    # def start(self):
-    #     self.processor_thread.start()
+        self.submap = None
+        self.loop_closures = set()
 
     def stop(self):
         self.stop_loop = True
-        # self.processor_thread.join(timeout=5)
         rclpy.logging.get_logger("pose_graph").debug("Optimizer thread stopped")
 
     def reset(self):
-        self.last_keyframe_pose = Pose3()
-        self.current_pose = Pose3()
+        self.prev_keyframe_pose = np.eye(4)
         self.keyframes = []
         self.graph = gtsam.NonlinearFactorGraph()
         self.initial_estimates = gtsam.Values()
         self.stop_loop = False
+        self.submap = []
 
-
-    def should_add_keyframe(self) -> bool:
+    def should_add_keyframe(self, current_pose: np.array, last_keyframe_pose: np.array) -> bool:
         """
         Determine whether to add a new keyframe based on the current pose.
 
         :return: Boolean indicating whether to add a new keyframe
         """
-        # Extract translations (last column of the matrix)
-        t_current = self.current_pose.matrix()[:3, 3]
-        t_last = self.last_keyframe_pose.matrix()[:3, 3]
-        translation_diff = np.linalg.norm(t_current - t_last)
+        # Compute the translation and rotation differences between the current and last keyframes.
 
+        # Extract translations (last column of the matrix)
+        t_current = current_pose[:3, 3]
+        t_last = last_keyframe_pose[:3, 3]
+        translation_diff = np.linalg.norm(t_current - t_last)
         # Compute rotation difference:
         # Use the relative rotation matrix R_diff = R_last^T * R_current.
-        R_current = self.current_pose.matrix()[:3, :3]
-        R_last = self.last_keyframe_pose.matrix()[:3, :3]
+        R_current = current_pose[:3, :3]
+        R_last = last_keyframe_pose[:3, :3]
         R_diff = R_last.T @ R_current
+
         # Compute the rotation angle from the trace of R_diff.
         angle_rad = np.arccos(np.clip((np.trace(R_diff) - 1) / 2, -1.0, 1.0))
         angle_deg = np.degrees(angle_rad)
 
-        # Debug: print differences (optional)
-        # print(f"Translation diff: {translation_diff:.2f} m, Rotation diff: {angle_deg:.2f}°")
-
         # If either difference exceeds the threshold, we add a new keyframe.
         return translation_diff > self.trans_thresh or angle_deg > self.rot_thresh_deg
 
-    def update_pose_graph(self, trans: np.ndarray, scan_pc: o3d.geometry.PointCloud, gen_descriptor: Callable[[np.ndarray], np.ndarray]) -> None:
+    def update_pose_graph(self, trans: np.ndarray, scan_pc: o3d.geometry.PointCloud, gen_descriptor: Callable[[np.ndarray, Optional[int]], np.ndarray]) -> None:
         """
         Do stfuf
 
@@ -153,309 +122,130 @@ class PoseGraphGTSAMICP:
 
         :return:
         """
-        rclpy.logging.get_logger("pose_graph").info(
-            f"cur pos: {type(trans)}")
-        self.current_pose = pose_from_matrix(trans)
 
-        points = np.asarray(scan_pc.points)
-        scan_pc_global = o3d.geometry.PointCloud(
-            o3d.utility.Vector3dVector(points))
-        scan_pc_global = scan_pc_global.transform(trans)#transform_point_cloud(scan_pc.copy(), trans)
+        if self.submap is None:
+            self.submap = Submap(pose=trans, point_clouds=[scan_pc.transform(trans)])
+        else:
+            self.submap += scan_pc.transform(trans)
 
-        if self.should_add_keyframe():
-            current_index = len(self.keyframes)
+        if not self.should_add_keyframe(trans, self.submap.matrix):
+            return
+        current_index = len(self.keyframes)
 
-            self.last_keyframe_pose = self.current_pose
+        descriptor = gen_descriptor(self.submap.points, 20)
 
-            descriptor = gen_descriptor(np.asarray(scan_pc_global.points))
-            keyframe = {
-                'pose': self.current_pose,
-                'descriptor': descriptor,
-                'point_cloud': scan_pc_global,
-            }
+        keyframe = {
+            'pose': self.submap.pose,
+            'descriptor': descriptor,
+            'point_cloud': self.submap.point_cloud,
+        }
+        self.submap = None
 
-            self.keyframes.append(keyframe)
-            rclpy.logging.get_logger("pose_graph").info("Adding keyframe, total keyframes: " + str(len(self.keyframes)))
+        self.keyframes.append(keyframe)
+        rclpy.logging.get_logger("pose_graph").info("Adding keyframe, total keyframes: " + str(len(self.keyframes)))
 
-            self.loop_closure_queue.put(keyframe)
-            if current_index == 0:
-                # For the first keyframe, initialize the graph with a prior factor.
-                prior_mean = gtsam.Pose3()
+        if current_index == 0:
+            # For the first keyframe, initialize the graph with a prior factor.
+            prior_mean = gtsam.Pose3()
 
-                self.graph.add(
-                    gtsam.PriorFactorPose3(0, prior_mean,gtsam.noiseModel.Constrained.All(6)))
-                self.initial_estimates.insert(0, prior_mean)
-            # elif current_index == 1:
-            #     prev_pose = self.initial_estimates.atPose3(0)
-            #     T_rel = prev_pose.between(self.current_pose)
-            #     self.graph.add(
-            #         gtsam.BetweenFactorPose3(0, 1, T_rel, self.odom_noise))
-            #     self.initial_estimates.insert(1, self.current_pose)
-            elif current_index >= 1:
-                prev_pose = self.initial_estimates.atPose3(current_index - 1)
-                # Compute relative transform from previous keyframe to current keyframe.
-                T_rel = prev_pose.between(self.current_pose)
-                odom_factor = gtsam.BetweenFactorPose3(current_index - 1,
-                                                       current_index,
-                                                           T_rel,
-                                                       self.odom_noise)
-                self.graph.add(odom_factor)
-                self.initial_estimates.insert(current_index, self.current_pose)
-            temp = None
-            if current_index % self.optimization_frequency == 0 and current_index > 0:
+            self.graph.add(
+                gtsam.PriorFactorPose3(0, prior_mean,gtsam.noiseModel.Constrained.All(6)))
+            self.initial_estimates.insert(0, prior_mean)
 
-                # if current_index > 0:
-                #     assert len(self.keyframes) - 1 == current_index
-                #     prev_pose = self.keyframes[-2]['pose']
-                #     # Compute relative transform from previous keyframe to current keyframe.
-                #     T_rel = prev_pose.between(self.current_pose)
-                #     T_rel = compute_loop_transformation(
-                #         self.keyframes[-2]['point_cloud'], self.keyframes[-1]['point_cloud'],
-                #         self.keyframes[-2]['pose'].matrix(), self.keyframes[-1]['pose'].matrix())
-                #     odom_factor = gtsam.BetweenFactorPose3(current_index - 1, current_index, pose_from_matrix(T_rel), self.odom_noise)
-                #     self.graph.add(odom_factor)
-                max_similarity = 0
-                max_similarity_pair = None
-                for i, kf in enumerate(self.keyframes):
-                    # Skip recent keyframes.
-                    if current_index - i < self.MIN_KEYFRAME_GAP:
-                        continue
-                    sim = cosine_similarity(keyframe['descriptor'],
-                                            kf['descriptor'])
+        elif current_index >= 1:
+
+            prev_pose = self.initial_estimates.atPose3(current_index - 1)
+            # Compute relative transform from previous keyframe to current keyframe.
+            T_rel = prev_pose.between(keyframe['pose'])
+            odom_factor = gtsam.BetweenFactorPose3(current_index - 1,
+                                                   current_index,
+                                                       T_rel,
+                                                   self.odom_noise)
+            self.graph.add(odom_factor)
+            self.initial_estimates.insert(current_index, keyframe['pose'])
+
+            loop_closures = []
+            for i, kf in enumerate(self.keyframes):
+                # Skip recent keyframes.
+                if current_index - i < self.MIN_KEYFRAME_GAP:
+                    continue
+                sim = cosine_similarity(keyframe['descriptor'], kf['descriptor'])
+                rclpy.logging.get_logger("pose_graph").info(
+                    f"cosine sim {i},{current_index}: {sim}")
+                if sim > self.loop_closure_similarity_threshold:
                     rclpy.logging.get_logger("pose_graph").info(
-                        f"cosine sim: {sim}")
-                    if sim > self.loop_closure_similarity_threshold:
-                        rclpy.logging.get_logger("pose_graph").info(
-                            f"Loop Closure Detected: keyframe {current_index} and keyframe {i} with similarity {sim:.4f}")
-                        if sim >= max_similarity:
-                            max_similarity = sim
-                            max_similarity_pair = (i, current_index)
-                if max_similarity_pair is not None:
-                    self.add_loop_closure_factor(max_similarity_pair[0], max_similarity_pair[1])
+                        f"Loop Closure Detected: keyframe {current_index} and keyframe {i} with similarity {sim}")
+                    # self.add_loop_closure_factor(i, current_index)
+                    loop_closures.append((i, current_index))
+            # Add loop closure factors to the graph.
+            if len(loop_closures) > 4:
+                loop_closures = random.sample(loop_closures, 4)
+            for i, current_index in loop_closures:
+                self.add_loop_closure_factor(i, current_index)
+
+        if current_index % self.optimization_frequency == 0 and current_index > 0:
+            params = gtsam.LevenbergMarquardtParams()
+            dog_legg_params = gtsam.DoglegParams()
+            optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph,
+                                                          self.initial_estimates,
+                                                          params)
+            try:
+                rclpy.logging.get_logger("pose_graph").info(
+                    f"STARTING OPTIMIZERRRR!!!!!!!!!!!!!!!!!!!!!!!")
+                result = optimizer.optimize()
+
+                # Update keyframe poses with optimized values.
+                for idx in range(1, len(self.keyframes)):
+                    new_pose = result.atPose3(idx)
+                    delta = self.keyframes[idx]['pose'].between(new_pose)
+                    self.keyframes[idx]['point_cloud'] = self.keyframes[idx]['point_cloud'].transform(delta.matrix())
+                    self.keyframes[idx]['pose'] = new_pose
+                    self.initial_estimates.update(idx, new_pose)
+                self.on_optimization_complete(self.keyframes)
+
+            except Exception as e:
+                rclpy.logging.get_logger("pose_graph").error(
+                    f"Error optimizing: {e}")
+                traceback.print_exc()
+                return
 
 
-                # Step 3: Add one prior to anchor the graph
-                # prior_noise = gtsam.noiseModel.Diagonal.Sigmas(
-                #     np.array([1e-6] * 6))
-                # self.graph.add(gtsam.PriorFactorPose3(0,
-                #     self.keyframes[0]['pose'], prior_noise))
-
-                # print(f"Running optimization on {current_index} keyframes...")
-                params = gtsam.LevenbergMarquardtParams()
-                optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph,
-                                                              self.initial_estimates,
-                                                              params)
-                # rclpy.logging.get_logger("pose_graph").info(f"{self.keyframes[0]['pose']}")
-
-                try:
-                    rclpy.logging.get_logger("pose_graph").info(
-                        f"STARTING OPTIMIZERRRR!!!!!!!!!!!!!!!!!!!!!!!")
-                    time.sleep(.5)
-                    result = optimizer.optimize()
-
-                    # Update keyframe poses with optimized values.
-                    for idx in range(1, len(self.keyframes)):
-                        new_pose = result.atPose3(idx)
-                        delta = new_pose.between(
-                            self.keyframes[idx]['pose'])
-                        rclpy.logging.get_logger("pose_graph").info(
-                            f"Pose {idx} delta after optimization: {delta}")
-                        # new_pose = pose_from_matrix(-new_pose.matrix())
-                        self.keyframes[idx]['pose'] = new_pose
-                        self.initial_estimates.update(idx, new_pose)
-                    rclpy.logging.get_logger("pose_graph").info(
-                        f"Optimizer COMPLETE!!!!!!!!!!!!!!!!!!!!!!!")
-                    # if temp is not None:
-                    #     self.on_optimization_complete([self.keyframes[temp[0]], self.keyframes[temp[1]]])
-                    #     return
-                    self.on_optimization_complete(self.keyframes)
-                except Exception as e:
-                    rclpy.logging.get_logger("pose_graph").error(
-                        f"Error optimizing: {e}")
-                    traceback.print_exc()
-                    return
-
-    # def optimization_loop(self):
-    #     current_index = 0
-    #
-    #     while not self.stop_loop:
-    #         try:
-    #             keyframe = self.loop_closure_queue.get_nowait().copy()
-    #         except queue.Empty:
-    #             time.sleep(0.1)
-    #             continue
-    #
-    #         raise RuntimeError("FUCKKKKK")
-    #
-    #         # Convert keyframe pose to GTSAM Pose3.
-    #         keyframe_pose = keyframe['pose']
-    #         pose_gtsam = pose_from_matrix(keyframe_pose)
-    #
-    #         # self.initial_estimates.insert(current_index, pose_gtsam)
-    #
-    #         # if current_index > 0:
-    #         #     assert len(self.keyframes) - 1 == current_index
-    #         #     prev_pose = self.keyframes[current_index - 1]['pose']
-    #         #     # Compute relative transform from previous keyframe to current keyframe.
-    #         #     T_rel = np.linalg.inv(prev_pose).dot(keyframe_pose)
-    #         #     rel_pose = pose_from_matrix(T_rel)
-    #         #     odom_factor = gtsam.BetweenFactorPose3(current_index - 1, current_index, rel_pose, self.odom_noise)
-    #         #     self.graph.add(odom_factor)
-    #
-    #         # Check for loop closures with older keyframes.
-    #         for i, kf in enumerate(self.keyframes):
-    #             # Skip recent keyframes.
-    #             if current_index - i < self.MIN_KEYFRAME_GAP:
-    #                 continue
-    #             sim = cosine_similarity(keyframe['descriptor'],
-    #                                     kf['descriptor'])
-    #             if sim > self.loop_closure_similarity_threshold:
-    #                 # Found a loop closure candidate.
-    #                 T_loop = compute_loop_transformation(
-    #                     keyframe['point_cloud'], kf['point_cloud'], keyframe['pose'], kf['pose'])
-    #                 if T_loop is not None:
-    #                     loop_pose = pose_from_matrix(T_loop)
-    #                     loop_factor = gtsam.BetweenFactorPose3(i, current_index,
-    #                                                            loop_pose,
-    #                                                            self.loop_noise)
-    #                     self.graph.add(loop_factor)
-    #                     rclpy.logging.get_logger("pose_graph").info(
-    #                         f"Added loop closure between keyframe {i} and {current_index}")
-    #
-    #         current_index += 1
-    #
-    #         # Periodically run the optimizer.
-    #         if current_index % self.optimization_frequency == 0:
-    #             self.graph = gtsam.NonlinearFactorGraph()
-    #             self.initial_estimates = gtsam.Values()
-    #             prior_noise = gtsam.noiseModel.Diagonal.Sigmas(np.array([.1]*6))
-    #
-    #             pose0 = pose_from_matrix(self.keyframes[0]['pose'])
-    #             self.initial_estimates.insert(0, pose0)
-    #             self.graph.add(gtsam.PriorFactorPose3(0, pose0, prior_noise))
-    #
-    #             # # Add all the other keyframes to the graph.
-    #             for idx, kf in enumerate(self.keyframes[1:], start=1):
-    #                 # Insert the pose into the initial estimates.
-    #                 self.initial_estimates.insert(idx,
-    #                                               pose_from_matrix(kf['pose']))
-    #                 rclpy.logging.get_logger("pose_graph").info(
-    #                     f"{pose_from_matrix(kf['pose'])}")
-    #
-    #             # print(f"Running optimization on {current_index} keyframes...")
-    #             optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph,
-    #                                                           self.initial_estimates)
-    #
-    #
-    #             result = optimizer.optimize()
-    #             # Update keyframe poses with optimized values.
-    #             for idx in range(len(self.keyframes)):
-    #                 opt_pose = result.atPose3(idx)
-    #                 # Update the keyframe's pose in your database.
-    #                 self.keyframes[idx]['pose'] = np.array(opt_pose.matrix())
-    #
-    #             self.on_optimization_complete(self.keyframes)
-    #
-    #             # print("Optimization complete.")
-    #
-    #         # Sleep briefly to prevent busy waiting.
-    #         time.sleep(0.1)
     def add_loop_closure_factor(self, i, current_index):
+        """
+        Add a loop closure factor to the graph.
+
+        :param i: The index of the previous keyframe
+        :param current_index: The index of the current keyframe
+        """
         prev_kf = self.keyframes[i]
         keyframe = self.keyframes[current_index]
         # Found a loop closure candidate.
-        delta = compute_loop_transformation(
+        t_icp = compute_icp_transformation(
             prev_kf['point_cloud'], keyframe['point_cloud'],
-            prev_kf['pose'].matrix(), keyframe['pose'].matrix(),
-            prev_kf['pose'].between(keyframe['pose']).matrix())
-        delta = pose_from_matrix(delta)
+            np.eye(4), logger=rclpy.logging.get_logger("loop_closure").info)#prev_kf['pose'].between(keyframe['pose']).matrix())
+        t_new_prev = t_icp @ prev_kf['pose'].matrix()
+        t_prev_cur = np.linalg.inv(t_new_prev) @ keyframe['pose'].matrix()
 
-        # delta = kf['pose'].between(keyframe['pose'])
+        delta = pose_from_matrix(t_prev_cur)
+
+        # p = multiprocessing.Process(target=_show, args=(
+        #     [np.asarray(prev_kf['point_cloud'].transform(t_icp).points),
+        #      np.asarray(keyframe['point_cloud'].points)],))
+        # p.daemon = True
+        # p.start()
+
         if delta is not None:
-            # loop_pose = pose_from_matrix(delta)
+            ## MATH
+            # icp_T @ prev_T = new_prev_T
+            # WANT: T_prev_current = prev_T ^ -1 @ cur_T
             loop_factor = gtsam.BetweenFactorPose3(i,
                                                    current_index,
                                                    delta,
                                                    self.loop_noise)
             self.graph.add(loop_factor)
-            # cur_pose = kf['pose'].compose(delta)
-            # self.initial_estimates.update(current_index, cur_pose)
-            temp = (i, current_index)
+            cur_pose = prev_kf['pose'].compose(delta)
+            self.initial_estimates.update(current_index, cur_pose)
+            self.loop_closures.add(current_index)
+            self.loop_closures.add(i)
             rclpy.logging.get_logger("pose_graph").info(
                 f"Added loop closure between keyframe {i} and {current_index}")
-
-
-def compute_scan_context_descriptor(scan, num_angle_bins=60, num_radius_bins=20,
-    max_range=80.0):
-    """
-    Computes a Scan Context descriptor for a point cloud.
-
-    Args:
-        scan (np.ndarray): Input point cloud of shape (N, 3) with columns [x, y, z].
-        num_angle_bins (int): Number of bins for the azimuth angle.
-        num_radius_bins (int): Number of bins for the radial distance.
-        max_range (float): Maximum range to consider for binning.
-
-    Returns:
-        descriptor (np.ndarray): Flattened descriptor vector.
-    """
-    # Initialize the descriptor matrix with a very small value.
-    descriptor = np.full((num_radius_bins, num_angle_bins), -np.inf)
-
-    # Compute polar coordinates (rho, theta) for each point.
-    xs = scan[:, 0]
-    ys = scan[:, 1]
-    zs = scan[:, 2]
-    rho = np.sqrt(xs ** 2 + ys ** 2)
-    theta = np.arctan2(ys, xs)  # range [-pi, pi]
-
-    # Only consider points within the max_range.
-    valid = rho < max_range
-    rho = rho[valid]
-    theta = theta[valid]
-    zs = zs[valid]
-
-    # Map angles from [-pi, pi] to [0, 2*pi]
-    theta = theta + np.pi
-
-    # Determine bin indices.
-    angle_bin_indices = np.floor(theta / (2 * np.pi) * num_angle_bins).astype(
-        np.int32)
-    radius_bin_indices = np.floor(rho / max_range * num_radius_bins).astype(
-        np.int32)
-
-    # Clamp indices to valid range.
-    angle_bin_indices = np.clip(angle_bin_indices, 0, num_angle_bins - 1)
-    radius_bin_indices = np.clip(radius_bin_indices, 0, num_radius_bins - 1)
-
-    # Populate the descriptor matrix: use maximum z in each bin.
-    for r_bin, a_bin, z in zip(radius_bin_indices, angle_bin_indices, zs):
-        # Update the bin if this z is higher than the current stored value.
-        if z > descriptor[r_bin, a_bin]:
-            descriptor[r_bin, a_bin] = z
-
-    # Replace -inf values with 0 (bins that received no points).
-    descriptor[descriptor == -np.inf] = 0
-
-    # Optionally, flatten and L2-normalize the descriptor.
-    flat_descriptor = descriptor.flatten()
-    norm = np.linalg.norm(flat_descriptor) + 1e-8
-    flat_descriptor /= norm
-
-    return flat_descriptor
-
-def transform_point_cloud(pc: np.ndarray, T: np.ndarray) -> np.ndarray:
-    """
-    Transform a point cloud using a 4x4 transformation matrix.
-
-    :param pc: The point cloud to transform
-    :param T: The 4x4 transformation matrix
-
-    :return: The transformed point cloud
-    """
-    # Add a row of [0, 0, 0, 1] to the point cloud to make it homogeneous.
-    pc_h = np.hstack((pc, np.ones((pc.shape[0], 1))))
-    # Transform the point cloud using the transformation matrix.
-    pc_transformed_h = np.dot(T, pc_h.T).T
-    # Remove the homogeneous coordinate and return the transformed point cloud.
-    return pc_transformed_h[:, :3]

@@ -9,3 +9,4 @@ camera:
   cy: 717.95435
 dgr_config:
   weights: "/Users/mattkazan/PrivateFiles/NortheasternClasses/Year5/EECE5550/FinalProject/final_project/src/libs/libs/DeepGlobalRegistration/ResUNetBN2C-feat32-3dmatch-v0.05.pth"
+ndt_config_path: "/Users/mattkazan/PrivateFiles/NortheasternClasses/Year5/EECE5550/FinalProject/final_project/src/libs/libs/NDT_Transformer/checkpoint.pth.tar"

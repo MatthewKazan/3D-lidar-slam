@@ -1,13 +1,11 @@
 import multiprocessing
 import os
 import sys
-import threading
-import time
 import traceback
 
 import rclpy
 import rclpy.logging
-from rclpy.executors import SingleThreadedExecutor, MultiThreadedExecutor
+from rclpy.executors import MultiThreadedExecutor
 from slam.output_data_handler import PointCloudPublisher
 from slam.input_data_handler import PointClouds2Subscriber
 
@@ -16,23 +14,11 @@ from scripts.paths import PATH_TO_CONFIG
 from scripts.data_transfer import DataTransfer
 from scripts.process_pc_manager import ProcessPointCloudsHandlerNode
 from slam.simple_service_handler import ResetHandler, \
-    ServiceMapping, SimpleServiceHandler
+    ServiceMapping, SimpleServiceHandler, get_algorithms_list_callback, SetAlgorithmServiceMapping
 from std_srvs.srv import Trigger
-from custom_interfaces.srv import SetAlgorithm
-from custom_interfaces.srv import GetAlgorithmsList
-
-from slam.simple_service_handler import get_algorithms_list_callback
-
-from slam.simple_service_handler import SetAlgorithmServiceMapping
+from custom_interfaces.srv import SetAlgorithm, GetAlgorithmsList
 
 
-def spin_executor(executor):
-    try:
-        executor.spin()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        executor.shutdown()
 
 
 def run_subscriber_process(data_transfer):
@@ -91,23 +77,14 @@ def main():
     data_transfer = DataTransfer()
 
     # Create nodes
-    # subscriber_node = PointClouds2Subscriber(data_transfer)
     publisher_node = PointCloudPublisher(data_transfer)
 
     algorithm = publisher_node.declare_parameter('algorithm', 'icp').value.lower()
-    camera_config_name = publisher_node.declare_parameter('config',
-                                                'config.yaml').value.lower()
-    config_path = os.path.join(
-        PATH_TO_CONFIG,
-        camera_config_name
-    )
+
     # Start processor in a separate thread
     processor_handler = ProcessPointCloudsHandlerNode(
         algorithm=str(algorithm),
-        config_path=str(config_path),
         data_transfer=data_transfer,
-        # stop_event=data_transfer.stop_event,
-        # reset_event=data_transfer.reset_event
     )
     reset_handler = ResetHandler([publisher_node, data_transfer, processor_handler])
     service_mappings = [
@@ -128,21 +105,6 @@ def main():
         node.get_logger().info(f"Adding {node.get_name()} to executor")
         executor.add_node(node)
 
-    # executor_sub_pub = MultiThreadedExecutor(8)
-    # executor_sub_pub.add_node(subscriber_node)
-    # executor_sub_pub.add_node(service_handler)
-    #
-    # # And another executor for processor and service nodes (heavy processing)
-    # executor_proc_srv = MultiThreadedExecutor(8)
-    # executor_proc_srv.add_node(processor_handler)
-    # executor_proc_srv.add_node(publisher_node)
-
-    # Spin each executor in its own thread.
-    # thread_sub_pub = threading.Thread(target=spin_executor, args=(executor_sub_pub,), daemon=True)
-    # thread_proc_srv = threading.Thread(target=spin_executor, args=(executor_proc_srv,), daemon=True)
-    #
-    # thread_sub_pub.start()
-    # thread_proc_srv.start()
     subscriber_proc = multiprocessing.Process(
         target=run_subscriber_process, args=(data_transfer,), daemon=True
     )
@@ -151,8 +113,6 @@ def main():
 
     try:
         executor.spin()
-        # while rclpy.ok():
-        #     time.sleep(1)
     except KeyboardInterrupt:
         publisher_node.get_logger().info("Keyboard interrupt, shutting down...")
     except Exception as e:
@@ -164,8 +124,6 @@ def main():
         subscriber_proc.join(5)
 
         executor.shutdown()
-        # executor_sub_pub.shutdown()
-        # executor_proc_srv.shutdown()
 
         for node in nodes:
             node.destroy_node()
