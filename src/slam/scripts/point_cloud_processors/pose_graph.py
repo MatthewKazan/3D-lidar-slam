@@ -37,8 +37,8 @@ class PoseGraphGTSAMICP:
     def __init__(self,
         on_optimization_complete,
         trans_thresh: float = 0.5,
-        rot_thresh_deg: float = 7,
-        loop_closure_similarity_threshold: float = .95,
+        rot_thresh_deg: float = 6.5,
+        loop_closure_similarity_threshold: float = .97,
         optimization_frequency: int = 5,
         min_keyframe_gap: int = 20,
     ):
@@ -85,7 +85,7 @@ class PoseGraphGTSAMICP:
         self.graph = gtsam.NonlinearFactorGraph()
         self.initial_estimates = gtsam.Values()
         self.stop_loop = False
-        self.submap = []
+        self.submap = None
 
     def should_add_keyframe(self, current_pose: np.array, last_keyframe_pose: np.array) -> bool:
         """
@@ -122,16 +122,16 @@ class PoseGraphGTSAMICP:
 
         :return:
         """
-
+        global_scan_pc = scan_pc.transform(trans)
         if self.submap is None:
-            self.submap = Submap(pose=trans, point_clouds=[scan_pc.transform(trans)])
+            self.submap = Submap(pose=trans, point_cloud=global_scan_pc)
         else:
-            self.submap += scan_pc.transform(trans)
+            self.submap += global_scan_pc
 
         if not self.should_add_keyframe(trans, self.submap.matrix):
             return
         current_index = len(self.keyframes)
-
+        self.submap.outlier_rejection()
         descriptor = gen_descriptor(self.submap.points, 20)
 
         keyframe = {
@@ -153,61 +153,86 @@ class PoseGraphGTSAMICP:
             self.initial_estimates.insert(0, prior_mean)
 
         elif current_index >= 1:
+            self.add_keyframe(keyframe, current_index)
+            self.detect_loop_closure(keyframe, current_index)
+            if current_index % self.optimization_frequency == 0 and current_index > 0:
+                self.run_optimizer()
 
-            prev_pose = self.initial_estimates.atPose3(current_index - 1)
-            # Compute relative transform from previous keyframe to current keyframe.
-            T_rel = prev_pose.between(keyframe['pose'])
-            odom_factor = gtsam.BetweenFactorPose3(current_index - 1,
-                                                   current_index,
-                                                       T_rel,
-                                                   self.odom_noise)
-            self.graph.add(odom_factor)
-            self.initial_estimates.insert(current_index, keyframe['pose'])
+    def add_keyframe(self, keyframe, current_index) -> None:
+        """
+        Add a new keyframe to the graph and add an odometry factor.
 
-            loop_closures = []
-            for i, kf in enumerate(self.keyframes):
-                # Skip recent keyframes.
-                if current_index - i < self.MIN_KEYFRAME_GAP:
-                    continue
-                sim = cosine_similarity(keyframe['descriptor'], kf['descriptor'])
+        :param keyframe: The current keyframe to add, made up of multiple point clouds,
+            a pose, which is the point cloud registration result for the first scan,
+            and a descriptor for the keyframe.
+        :param current_index: The index of the current keyframe
+        """
+        prev_pose = self.initial_estimates.atPose3(current_index - 1)
+        # Compute relative transform from previous keyframe to current keyframe.
+        T_rel = prev_pose.between(keyframe['pose'])
+        odom_factor = gtsam.BetweenFactorPose3(current_index - 1,
+                                               current_index,
+                                                   T_rel,
+                                               self.odom_noise)
+        self.graph.add(odom_factor)
+        self.initial_estimates.insert(current_index, keyframe['pose'])
+
+
+    def detect_loop_closure(self, keyframe, current_index) -> None:
+        """
+        Detect loop closures by comparing the current keyframe with previous keyframes.
+        If the descriptor similarity is above a certain threshold, add a loop closure factor.
+
+        :param keyframe: The current keyframe to compare with previous keyframes
+        :param current_index: The index of the current keyframe
+        """
+        loop_closures = []
+        for i, kf in enumerate(self.keyframes):
+            # Skip recent keyframes.
+            if current_index - i < self.MIN_KEYFRAME_GAP:
+                continue
+            sim = cosine_similarity(keyframe['descriptor'], kf['descriptor'])
+            rclpy.logging.get_logger("pose_graph").info(
+                f"cosine sim {i},{current_index}: {sim}")
+            if sim > self.loop_closure_similarity_threshold:
                 rclpy.logging.get_logger("pose_graph").info(
-                    f"cosine sim {i},{current_index}: {sim}")
-                if sim > self.loop_closure_similarity_threshold:
-                    rclpy.logging.get_logger("pose_graph").info(
-                        f"Loop Closure Detected: keyframe {current_index} and keyframe {i} with similarity {sim}")
-                    # self.add_loop_closure_factor(i, current_index)
-                    loop_closures.append((i, current_index))
-            # Add loop closure factors to the graph.
-            if len(loop_closures) > 4:
-                loop_closures = random.sample(loop_closures, 4)
-            for i, current_index in loop_closures:
-                self.add_loop_closure_factor(i, current_index)
+                    f"Loop Closure Detected: keyframe {current_index} and keyframe {i} with similarity {sim}")
+                # self.add_loop_closure_factor(i, current_index)
+                loop_closures.append((i, current_index))
+        # Add loop closure factors to the graph.
+        if len(loop_closures) > 4:
+            loop_closures = random.sample(loop_closures, 4)
+        for i, current_index in loop_closures:
+            self.add_loop_closure_factor(i, current_index)
 
-        if current_index % self.optimization_frequency == 0 and current_index > 0:
-            params = gtsam.LevenbergMarquardtParams()
-            dog_legg_params = gtsam.DoglegParams()
-            optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph,
-                                                          self.initial_estimates,
-                                                          params)
-            try:
-                rclpy.logging.get_logger("pose_graph").info(
-                    f"STARTING OPTIMIZERRRR!!!!!!!!!!!!!!!!!!!!!!!")
-                result = optimizer.optimize()
+    def run_optimizer(self) -> None:
+        """
+        Run the GTSAM optimizer to optimize the pose graph.
+        """
+        params = gtsam.LevenbergMarquardtParams()
+        # dog_legg_params = gtsam.DoglegParams()
+        optimizer = gtsam.LevenbergMarquardtOptimizer(self.graph,
+                                                      self.initial_estimates,
+                                                      params)
+        try:
+            rclpy.logging.get_logger("pose_graph").info(
+                f"STARTING OPTIMIZERRRR!!!!!!!!!!!!!!!!!!!!!!!")
+            result = optimizer.optimize()
 
-                # Update keyframe poses with optimized values.
-                for idx in range(1, len(self.keyframes)):
-                    new_pose = result.atPose3(idx)
-                    delta = self.keyframes[idx]['pose'].between(new_pose)
-                    self.keyframes[idx]['point_cloud'] = self.keyframes[idx]['point_cloud'].transform(delta.matrix())
-                    self.keyframes[idx]['pose'] = new_pose
-                    self.initial_estimates.update(idx, new_pose)
-                self.on_optimization_complete(self.keyframes)
+            # Update keyframe poses with optimized values.
+            for idx in range(1, len(self.keyframes)):
+                new_pose = result.atPose3(idx)
+                delta = self.keyframes[idx]['pose'].between(new_pose)
+                self.keyframes[idx]['point_cloud'] = self.keyframes[idx]['point_cloud'].transform(delta.matrix())
+                self.keyframes[idx]['pose'] = new_pose
+                self.initial_estimates.update(idx, new_pose)
+            self.on_optimization_complete(self.keyframes)
 
-            except Exception as e:
-                rclpy.logging.get_logger("pose_graph").error(
-                    f"Error optimizing: {e}")
-                traceback.print_exc()
-                return
+        except Exception as e:
+            rclpy.logging.get_logger("pose_graph").error(
+                f"Error optimizing: {e}")
+            traceback.print_exc()
+            return
 
 
     def add_loop_closure_factor(self, i, current_index):

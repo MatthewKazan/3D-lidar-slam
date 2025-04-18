@@ -14,14 +14,14 @@ def pose_from_matrix(matrix: np.array) -> Pose3:
 class Submap:
     def __init__(self,
         pose: typing.Union[Pose3, np.array] = None,
-        point_clouds: typing.List[o3d.geometry.PointCloud] = [],
+        point_cloud: o3d.geometry.PointCloud = o3d.geometry.PointCloud(),
     ):
         """"""
         if isinstance(pose, np.ndarray):
             pose = pose_from_matrix(pose)
         self.pose = pose
         self._delta_from_original_pose = None
-        self._point_clouds = point_clouds
+        self.point_cloud = point_cloud
         self.descriptor = None
 
         #TODO: implement cached descriptor, and point_cloud for when submap hasnt' updated
@@ -43,27 +43,31 @@ class Submap:
         return np.array(self._pose.matrix())
 
     @property
-    def point_cloud(self) -> o3d.geometry.PointCloud:
-        point_cloud = sum(np.array(self._point_clouds), o3d.geometry.PointCloud())
-        return point_cloud
-
-    @property
     def points(self) -> np.ndarray:
         return np.asarray(self.point_cloud.points)
 
     def __add__(self, other):
         if isinstance(other, Submap):
-            new_point_clouds = self._point_clouds + other._point_clouds
+            new_point_clouds = self.point_cloud + other.point_cloud
             if self.pose is None:
                 new_pose = other._pose
             else:
                 new_pose = self._pose
         elif isinstance(other, o3d.geometry.PointCloud):
-            new_point_clouds = [*self._point_clouds, other]
+            new_point_clouds = self.point_cloud + other
             new_pose = self._pose
         else:
             raise TypeError("Can only add Submap, or pointcloud objects")
-        return Submap(pose=new_pose, point_clouds=new_point_clouds)
+        return Submap(pose=new_pose, point_cloud=new_point_clouds)
+
+    def outlier_rejection(self):
+        """
+        Remove outliers from the point cloud using statistical outlier removal.
+        """
+        if self.point_cloud.is_empty():
+            return
+        self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(
+            nb_neighbors=20, std_ratio=3.0)
 
 
 def compute_scan_context_descriptor(scan, num_angle_bins=60, num_radius_bins=20,

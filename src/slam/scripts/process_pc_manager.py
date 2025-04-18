@@ -102,22 +102,25 @@ class ProcessPointCloudsHandler:
         self.set_algorithm(self.algorithm)
 
         self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map)
+        self.first_scan = True
 
     def process_loop(self) -> None:
         """
         Start the point cloud processing thread. Should be run in a separate process.
         """
         try:
+            if self.first_scan:
+                rclpy.logging.get_logger("processing_manager").info("Ready for point cloud processing")
+                self.first_scan = False
+                return
 
             start_time = time.time()
             ### Do actual data processing ###
             scan_pc = self.processor.process()
 
-            rclpy.logging.get_logger("processing_manager").debug(f"Processing took {time.time() - start_time:.3f} seconds")
-
             if scan_pc is None:
                 return
-            rclpy.logging.get_logger("processing_manager").info(f"registration took {time.time() - start_time:.3f} seconds")
+            rclpy.logging.get_logger("processing_manager").debug(f"registration took {time.time() - start_time:.3f} seconds")
 
             self.pose_graph.update_pose_graph(
                 trans=self.processor.previous_transformation[-1],
@@ -153,21 +156,6 @@ class ProcessPointCloudsHandler:
         self.processor = constructor(
             data_transfer=self.data_transfer,
         )
-        # if algorithm == AlgorithmType.ICP:
-        #     processor = ICPProcessor(
-        #         # config_path=self.config_path,
-        #         data_transfer=self.data_transfer,
-        #         # reset_event=self.reset_event
-        #     )
-        # elif algorithm == AlgorithmType.DGR:
-        #     processor = DGRProcessor(
-        #         # config_path=self.config_path,
-        #         data_transfer=self.data_transfer,
-        #         # reset_event=self.reset_event
-        #     )
-        # else:
-        #     raise KeyError(f"Unsupported algorithm: {algorithm}")
-        # self.processor = processor
 
         rclpy.logging.get_logger("processing_manager").info(
             f"Switched to algorithm: {algorithm}")

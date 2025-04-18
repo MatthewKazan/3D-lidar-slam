@@ -1,8 +1,6 @@
-import multiprocessing
 import os
 import sys
 
-import numpy as np
 import open3d as o3d
 import rclpy.logging
 
@@ -10,6 +8,9 @@ from scripts.point_cloud_processors.generic_point_cloud_processor import Process
 from scripts.data_transfer import DataTransfer
 from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK
 from scripts.state import state
+
+from scripts.point_cloud_processors.utils.open3d_utils import \
+    compute_icp_transformation, o3d_from_np_point_cloud, np_from_o3d_point_cloud
 
 # Set working directory to where DGR expects to be
 # There must be a better way to do this
@@ -19,6 +20,7 @@ sys.path.append(PATH_TO_BUILD_MINK)  # Ensure the path is in Python's search
 
 import libs.DeepGlobalRegistration.core.deep_global_registration as dgr
 from libs.DeepGlobalRegistration.config import get_config
+
 
 class DGRProcessor(ProcessPointClouds):
     """
@@ -33,7 +35,7 @@ class DGRProcessor(ProcessPointClouds):
         Initialize the point cloud processor with settings from a YAML file.
         Should be run in a separate process since it's a long-running task.
 
-        :param reset_event: Thread-safe event triggered on database reset.
+        :param data_transfer: Thread-safe data object to send and receive pcs.
         """
         super().__init__(
             data_transfer,
@@ -45,33 +47,33 @@ class DGRProcessor(ProcessPointClouds):
         if "--ros-args" in sys.argv:
             ros_args_index = sys.argv.index("--ros-args")
             sys.argv = sys.argv[:ros_args_index]  # Remove ROS arguments
-        dgr_config = get_config()
-        dgr_config.weights = state.config['dgr_config']['weights']
+        self.dgr_config = get_config()
+        self.dgr_config.weights = state.config['dgr_config']['weights']
         self.pcs_to_align_with = []
 
-        self.dgr = dgr.DeepGlobalRegistration(dgr_config, device='cpu')
+        self.dgr = dgr.DeepGlobalRegistration(self.dgr_config, device='cpu')
+        self.max_points = 120000
 
     def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=.02) -> None:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
-        :param points: The new point cloud to add to the global map
+        :param point_cloud: The new point cloud to add to the global map
 
         :return: The new point cloud transformed to align with the global map
         """
-        # self.logger.info(f"DGR")
-        # point_cloud = o3d.geometry.PointCloud()
-        # point_cloud.points = o3d.utility.Vector3dVector(points)
-        # # Can this be done quickly?
-        # # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
-        #
-        # o3d_global_map = o3d.geometry.PointCloud()
-        # o3d_global_map.points = o3d.utility.Vector3dVector(self.global_map)
-        o3d_global_map = o3d.geometry.PointCloud()
-        for pc in self.pcs_to_align_with:
-            o3d_global_map += pc
 
-        point_cloud = point_cloud.voxel_down_sample(voxel_size)
+        o3d_global_map = o3d.geometry.PointCloud()
+        points = 0
+        # DGR is a little whiny about the number of points it wants to align
+        for i in range(len(self.pcs_to_align_with), 0, -1):
+            pc = self.pcs_to_align_with[i - 1]
+            if points < self.max_points:
+                o3d_global_map += pc
+                points += len(pc.points)
+
+        # point_cloud = point_cloud.voxel_down_sample(voxel_size)
+        # DGR just hangs seemingly indefinitely sometimes
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
 
         self.previous_transformation.append(dgr_result_transformation)

@@ -81,7 +81,7 @@ class ProcessPointClouds(ABC):
             self.point_clouds_in_map += 1
             self.global_map = point_cloud_3d
             self.pcs_to_align_with.append(point_cloud_3d)
-            return point_cloud_3d
+            return copy.deepcopy(point_cloud_3d)
         # Transform the new point cloud into the global map frame and add to self.global_map
         global_oriented_pc = self.construct_global_map(point_cloud_3d)
         self.pcs_to_align_with.append(global_oriented_pc)
@@ -100,7 +100,6 @@ class ProcessPointClouds(ABC):
         self.point_clouds_in_map = 0
         self.previous_transformation = [np.identity(4)]
         self.start_time = None
-        # self.reset_event.clear()
         time.sleep(1)
 
     def rebuild_global_map(self, keyframes) -> None:
@@ -114,7 +113,7 @@ class ProcessPointClouds(ABC):
 
         for i, keyframe in enumerate(keyframes):
             T = np.array(keyframe['pose'].matrix())
-            pc = keyframe['point_cloud']
+            pc = copy.deepcopy(keyframe['point_cloud'])
             # pc = pc.transform(T)
 
             self.global_map += pc.voxel_down_sample(0.02)
@@ -130,42 +129,16 @@ class ProcessPointClouds(ABC):
         self.logger.debug(f"Global map rebuilt from {len(keyframes)} keyframes")
 
     @abstractmethod
-    def construct_global_map(self, points: np.array) -> o3d.geometry.PointCloud:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=0.02) -> o3d.geometry.PointCloud:
         """
         Construct the global map from the point cloud.
         Store the global map in the global_map instance variable.
 
-        :param points: A numpy array of x,y,z points in meters
+        :param point_cloud: A numpy array of x,y,z points in meters
+        :param voxel_size: The voxel size for downsampling the point clouds
         """
         pass
 
-    # @abstractmethod
-    # def downsample_global_map(self) -> np.ndarray:
-    #     """
-    #     Function which downsamples the global map to reduce the number of points
-    #     in the global map. Used to reduce number of points published to avoid overwhelming rviz
-    #     without sacrificing local accuracy.
-    #
-    #     :return: numpy array of downsampled points
-    #     """
-    #     pass
-
-
-# def transform_point_cloud(pc: np.ndarray, T: np.ndarray) -> np.ndarray:
-#     """
-#     Transform a point cloud using a 4x4 transformation matrix.
-#
-#     :param pc: The point cloud to transform
-#     :param T: The 4x4 transformation matrix
-#
-#     :return: The transformed point cloud
-#     """
-#     # Add a row of [0, 0, 0, 1] to the point cloud to make it homogeneous.
-#     pc_h = np.hstack((pc, np.ones((pc.shape[0], 1))))
-#     # Transform the point cloud using the transformation matrix.
-#     pc_transformed_h = np.dot(T, pc_h.T).T
-#     # Remove the homogeneous coordinate and return the transformed point cloud.
-#     return pc_transformed_h[:, :3]
 
 if __name__ == "__main__":
     pass

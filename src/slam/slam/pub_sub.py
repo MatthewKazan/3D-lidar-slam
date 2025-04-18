@@ -86,7 +86,7 @@ def main():
         algorithm=str(algorithm),
         data_transfer=data_transfer,
     )
-    reset_handler = ResetHandler([publisher_node, data_transfer, processor_handler])
+    reset_handler = ResetHandler([data_transfer, publisher_node, processor_handler])
     service_mappings = [
         ServiceMapping("/save_global_map", Trigger,
                        publisher_node.save_map_callback),

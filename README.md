@@ -164,11 +164,12 @@ To build, and launch the ROS2 SLAM system with the visualizer
 As scans come in from the iPhone app, the SLAM system will process them and publish the global map 
 to the /global_map topic. 
 Add that topic to rviz2 to visualize the global map with the following changes to default settings:
+```
 - PointCloud2
 - Topic: /global_map
 - Style: Points
 - Color Transformer: AxisColor
-
+```
 ### To view saved global maps
 ```bash
 rviz2
@@ -207,7 +208,7 @@ And the inputs will be sent to the SLAM system as if they were coming from the i
 
 ### ICP-based SLAM
 
-The core of the project initially uses the **Iterative Closest Point (ICP)** algorithm for matching LiDAR point clouds over time. 
+The project can use the **Iterative Closest Point (ICP)** algorithm for matching LiDAR point clouds over time. 
 The point clouds are aligned using ICP, and the system estimates the pose of the LiDAR scanner in each frame.
 
 ### Deep Learning Integration (Current Work)
@@ -220,13 +221,34 @@ Several deep learning techniques will be integrated into the SLAM system for the
 
 These features will be incorporated gradually, with the goal of enhancing SLAM accuracy and robustness.
 
+Currently [Deep Global Registration (DGR)](https://arxiv.org/abs/2004.11540) is implemented as an alternative to ICP for point cloud registration.
+
+---
+## Loop Closure
+
+Loop closure is a critical component of SLAM systems, as it helps to correct drift and improve the accuracy of the map.
+The current implementation constructs keyframes out of segments of the global map, and adds them, their
+pose, and descriptor to the factor graph. The factor graph is then optimized using Levenberg-Marquardt optimization
+and the global map is updated with the optimized poses. 
+
+Loop closures are detected using the cosine simularity of the descriptors for each keyframes. The descriptors 
+can be constructed using the scan context descriptor function, or a descriptor constructed by an [NDT-Transformer model](https://arxiv.org/pdf/2103.12292).
+
+Currently the only way to update the descriptor function is to modify the state singleton in [state.py](src/slam/scripts/state.py) to use the new descriptor function.
+Future work will include a config file and/or ros2 service to update the descriptor function at runtime.
+
+The trained model used for NDT can be found [here](https://drive.google.com/file/d/1rJcswZsH05RZP3rMzfjWiwXXswikJgQd/view?usp=sharing)
+
 ---
 
 ## Adding Algorithms
 
 The SLAM system is designed to be modular, allowing for easy integration of new algorithms and features.
-To add a new algorithm, simply implement a new class that inherits from the abstract base class `ProcessPointClouds` and update the get_processor 
-method in the `process_point_clouds.py` file to return an instance of the new class.
+To add a new algorithm, simply implement a new class that inherits from the abstract base class `ProcessPointClouds` and update the Enum, and `processor_constructor` dict 
+in [algorithm_enum.py](src/slam/scripts/algorithm_enum.py).
+
+The function to construct a descriptor for each keyframe in the factor graph, is also easily changed
+by updating the state singleton in [state.py](src/slam/scripts/state.py) to use the new descriptor fn.
 
 ---
 

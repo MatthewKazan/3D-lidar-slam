@@ -49,16 +49,10 @@ class ICPProcessor(ProcessPointClouds):
         Align the new point cloud with the global map using ICP and add it to the map.
 
         :param point_cloud: The new point cloud to add to the global map
+        :param voxel_size: The voxel size for downsampling the point clouds
 
         :return: The new point cloud transformed to align with the global map
         """
-        # point_cloud = o3d.geometry.PointCloud()
-        # point_cloud.points = o3d.utility.Vector3dVector(points)
-        # point_cloud = point_cloud.voxel_down_sample(voxel_size)
-
-
-        # Can this be done quickly?
-        # point_cloud, _ = point_cloud.remove_statistical_outlier(nb_neighbors=5, std_ratio=6)
 
         o3d_global_map = o3d.geometry.PointCloud()
         for pc in self.pcs_to_align_with:
@@ -69,13 +63,13 @@ class ICPProcessor(ProcessPointClouds):
         t = time.time()
         icp_result_transformation = self.align_point_clouds_with_icp(
             point_cloud, o3d_global_map, voxel_size)
-        self.logger.info(f"ICP took {time.time() - t:.3f} seconds")
+        self.logger.debug(f"ICP took {time.time() - t:.3f} seconds")
         if icp_result_transformation is None:
             raise ValueError("ICP failed to find a transformation")
 
         point_cloud = point_cloud.voxel_down_sample(voxel_size).transform(icp_result_transformation)
         self.global_map += point_cloud
-        self.do_stuff()
+        # self.outlier_removal()
 
         return point_cloud
 
@@ -108,7 +102,7 @@ class ICPProcessor(ProcessPointClouds):
         self.previous_transformation.append(icp_transformation)
         return icp_transformation
 
-    def do_stuff(self) -> None:
+    def outlier_removal(self) -> None:
         """
         Do some basic point cloud processing on the global map every few point
         clouds, remove outliers, downsample, etc.
@@ -119,9 +113,8 @@ class ICPProcessor(ProcessPointClouds):
                 "downsampling and outlier removal on global map")
             self.logger.debug(
                 "started downsampling and outlier removal on global map")
-            # point_cloud_map = o3d.geometry.PointCloud()
-            # point_cloud_map.points = o3d.utility.Vector3dVector(self.global_map)
-            self.global_map.voxel_down_sample(0.001)
+
+            self.global_map = self.global_map.voxel_down_sample(0.001)
 
             # if self.point_clouds_in_map % 40 == 0:
             #     point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
@@ -139,10 +132,6 @@ class ICPProcessor(ProcessPointClouds):
             self.global_map, _ = self.global_map.remove_statistical_outlier(
                 nb_neighbors=45, std_ratio=2.6)
 
-            # self.global_map = np.asarray(point_cloud_map.points)
-            temp = self.downsample_freq
-            self.downsample_freq += self.downsample_freq + self.prev_downsample_freq
-            self.prev_downsample_freq = temp
             self.logger.debug(
                 "stopped downsampling and outlier removal on global map")
 
@@ -160,6 +149,7 @@ class ICPProcessor(ProcessPointClouds):
 
     def rebuild_global_map(self, keyframes) -> None:
         super().rebuild_global_map(keyframes)
+        self.outlier_removal()
         # self.prev_downsample_freq = 10
         # self.downsample_freq = 10
 
@@ -168,8 +158,8 @@ class ICPProcessor(ProcessPointClouds):
         Reset the point cloud processor.
         """
         super().reset()
-        self.prev_downsample_freq = 10
-        self.downsample_freq = 10
+        # self.prev_downsample_freq = 10
+        # self.downsample_freq = 10
 
     def EstimateCorrespondences(self, X: np.ndarray, Y: np.ndarray,
         t: np.ndarray, R: np.ndarray, dmax: float = 0.05) -> np.ndarray:
