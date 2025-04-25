@@ -67,7 +67,7 @@ class Submap:
         if self.point_cloud.is_empty():
             return
         self.point_cloud, _ = self.point_cloud.remove_statistical_outlier(
-            nb_neighbors=20, std_ratio=3.0)
+            nb_neighbors=30, std_ratio=3.0)
 
     def voxel_down_sample(self, voxel_size: float = 0.02):
         """
@@ -79,4 +79,14 @@ class Submap:
 
     def convert_to_local_frame(self):
         self.point_cloud = self.point_cloud.transform(np.linalg.inv(self.matrix))
+
+    def is_submap_complete(self, voxel_size,  point_thresh) -> bool:
+        """
+        Check if the submap is complete.
+        """
+        copy_pc = copy.deepcopy(self.point_cloud)
+        copy_pc = copy_pc.voxel_down_sample(voxel_size)
+        if len(copy_pc.points) > point_thresh:
+            return True
+        return False
 

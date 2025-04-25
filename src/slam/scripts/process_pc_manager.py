@@ -8,14 +8,13 @@ from rclpy.node import Node
 
 from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
-from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor
-from scripts.pointcloud_processors.pointcloud_registration import DGRProcessor
-from  custom_interfaces.srv import SetAlgorithm
+from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor, DGRProcessor
+from custom_interfaces.srv import SetAlgorithm
 from rclpy.service import SrvTypeResponse
 
 from scripts.pointcloud_processors.pose_graph import \
     PoseGraphGTSAMICP
-from scripts.state import state
+# from scripts.state import state
 
 from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
     NDTTransformer
@@ -23,73 +22,9 @@ from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import 
 from scripts.pointcloud_processors.descriptor_generators.scan_context import \
     ScanContext
 
+from scripts.algorithm_constructors import processor_constructor
 
-class ProcessPointCloudsHandlerNode(Node):
-    """
-    A ROS 2 node that manages the point cloud processing thread.
-    """
-
-    def __init__(self,
-        algorithm: str,
-        data_transfer: DataTransfer,
-    ):
-        super().__init__('process_point_clouds_handler')
-        # self.algorithm = algorithm
-        self.processor_handler = ProcessPointCloudsHandler(
-            algorithm=algorithm,
-            data_transfer=data_transfer,
-        )
-        self.data_transfer = data_transfer
-        self.timer = self.create_timer(0.1, self.processor_handler.process_loop)
-
-        # self.processor_handler.start()
-    def send_processing_request(self):
-        """
-        Send a processing request to the processor handler.
-        """
-        if not self.data_transfer.stop_event.is_set():
-            try:
-                self.processor_handler.process_loop()
-            except Exception as e:
-                rclpy.logging.get_logger("processing_manager").error(
-                    f"Exception in PointCloudHandler: {type(e)}: {e}")
-                traceback.print_exc()
-                self.timer.cancel()
-
-        self.processor_handler.process_loop()
-
-    def set_algorithm(self, request, response) -> SrvTypeResponse:
-        """
-        Service callback to change the processing algorithm.
-        """
-        self.get_logger().info(f"Received request to set algorithm to {request.algorithm}")
-        if request.algorithm not in AlgorithmType.__members__:
-            response.success = False
-            response.message = f"Unsupported algorithm: {request.algorithm}"
-            self.get_logger().error(response.message)
-            return response
-        # self.algorithm.set(request.algorithm)
-        self.processor_handler.set_algorithm(request.algorithm)
-
-        response.success = True
-        response.message = f"Algorithm set to {request.algorithm}"
-        self.get_logger().debug(response.message)
-        return response
-
-    def reset(self):
-        """
-        Reset the processor handler and pose graph.
-        """
-        self.processor_handler.reset()
-
-    def destroy_node(self):
-        """
-        Override the destroy_node method to stop the processor handler before destroying the node.
-        """
-        # self.processor_handler.stop()
-        self.timer.destroy()
-        super().destroy_node()
-
+from scripts.config import SLAMConfig
 
 
 class ProcessPointCloudsHandler:
@@ -98,20 +33,20 @@ class ProcessPointCloudsHandler:
     """
 
     def __init__(self,
-        algorithm: str,
+        config: SLAMConfig,
         data_transfer: DataTransfer,
     ):
         self.data_transfer = data_transfer
 
         self.cur_algorithm_type = None
         self.processor = None
-        self.set_algorithm(state.get('algorithm_type', "ICP"))
-        state.subscribe('algorithm_type', self.set_algorithm)
+        self.config = config
+        self.set_algorithm(config.algorithm_type)
         self.cur_descriptor_type = None
         self.descriptor = None
-        self.set_descriptor(state.get('descriptor_type', "NDT_T"))
+        self.set_descriptor(config.descriptor_type)
 
-        self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map)
+        self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map, self.config)
         self.first_scan = True
 
     def process_loop(self) -> None:
@@ -122,7 +57,7 @@ class ProcessPointCloudsHandler:
             if self.first_scan:
                 rclpy.logging.get_logger("processing_manager").info("Ready for point cloud processing")
                 self.first_scan = False
-                return
+
 
             start_time = time.time()
             ### Do actual data processing ###
@@ -132,11 +67,11 @@ class ProcessPointCloudsHandler:
                 return
             rclpy.logging.get_logger("processing_manager").debug(f"registration took {time.time() - start_time:.3f} seconds")
 
-            self.pose_graph.update_pose_graph(
-                trans=self.processor.previous_transformation[-1],
-                scan_pc=scan_pc,
-                gen_descriptor=self.descriptor.generate_descriptor,
-            )
+            # self.pose_graph.update_pose_graph(
+            #     trans=self.processor.previous_transformation[-1],
+            #     scan_pc=scan_pc,
+            #     gen_descriptor=self.descriptor.generate_descriptor,
+            # )
 
             if self.data_transfer.stop_event.is_set():
                 raise KeyboardInterrupt("Stopping processing")
@@ -157,24 +92,6 @@ class ProcessPointCloudsHandler:
                 f"Exception in process loop: {e}, {type(e)}")
             traceback.print_exc()
             raise
-
-    def set_algorithm(self, algorithm: AlgorithmType):
-        """Set the processing algorithm safely using Enum."""
-
-        algorithm = AlgorithmType[algorithm.upper()]
-
-        processor_constructor = {
-            AlgorithmType.ICP: ICPProcessor,
-            AlgorithmType.DGR: DGRProcessor
-        }
-        constructor = processor_constructor[algorithm]
-        self.processor = constructor(
-            data_transfer=self.data_transfer,
-        )
-        self.cur_algorithm_type = algorithm
-
-        rclpy.logging.get_logger("processing_manager").info(
-            f"Switched to algorithm: {algorithm}")
 
     def on_optimized_global_map(self, keyframes):
         """
@@ -198,11 +115,24 @@ class ProcessPointCloudsHandler:
 
         :param descriptor_type: The descriptor type to set.
         """
-        descriptor_type = DescriptorType[descriptor_type.upper()]
+        # descriptor_type = DescriptorType[descriptor_type.upper()]
         if descriptor_type == DescriptorType.NDT_T:
-            self.descriptor = NDTTransformer()
+            self.descriptor = NDTTransformer(config=self.config)
         elif descriptor_type == DescriptorType.SCAN_CONTEXT:
             self.descriptor = ScanContext()
 
-    # def check_for_state_update
+    def set_algorithm(self, algorithm: AlgorithmType):
+        """Set the processing algorithm safely using Enum."""
+
+        # algorithm = AlgorithmType[algorithm.upper()]
+
+        constructor = processor_constructor[algorithm]
+        self.processor = constructor(
+            data_transfer=self.data_transfer,
+            config=self.config,
+        )
+        self.cur_algorithm_type = algorithm
+
+        rclpy.logging.get_logger("processing_manager").info(
+            f"Switched to algorithm: {algorithm}")
 

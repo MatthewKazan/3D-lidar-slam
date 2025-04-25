@@ -16,6 +16,7 @@ from scripts.pointcloud_processors.pointcloud_registration.generic_point_cloud_p
 from scripts.pointcloud_processors.utils.open3d_utils import \
     compute_icp_transformation
 
+from scripts.config import SLAMConfig
 
 
 class ICPProcessor(ProcessPointClouds):
@@ -25,6 +26,7 @@ class ICPProcessor(ProcessPointClouds):
     """
 
     def __init__(self,
+        config: SLAMConfig,
         data_transfer: DataTransfer,
     ):
         """
@@ -34,6 +36,7 @@ class ICPProcessor(ProcessPointClouds):
         :param config_path: Path to the YAML configuration file.
         """
         super().__init__(
+            config,
             data_transfer,
             rclpy.logging.get_logger("icp processor")
         )
@@ -41,7 +44,7 @@ class ICPProcessor(ProcessPointClouds):
         self.prev_downsample_freq = 10
         self.downsample_freq = 10
 
-    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=0.02) -> o3d.geometry.PointCloud:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> o3d.geometry.PointCloud:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
@@ -61,6 +64,10 @@ class ICPProcessor(ProcessPointClouds):
         icp_result_transformation = self.align_point_clouds_with_icp(
             point_cloud, o3d_global_map, voxel_size)
         self.logger.debug(f"ICP took {time.time() - t:.3f} seconds")
+
+        if self.data_transfer.stop_event.is_set():
+            raise KeyboardInterrupt("Stopping ICP processing")
+
         if icp_result_transformation is None:
             raise ValueError("ICP failed to find a transformation")
 
@@ -73,7 +80,7 @@ class ICPProcessor(ProcessPointClouds):
     def align_point_clouds_with_icp(self, source_cloud, target_cloud,
         voxel_size=0.02) -> np.ndarray:
         """
-        Align two point clouds using RANSAC and then ICP.
+        Align two point clouds using point to point ICP.
 
         :param source_cloud: The new point cloud to align
         :param target_cloud: The global map to align the new point cloud with
@@ -91,8 +98,7 @@ class ICPProcessor(ProcessPointClouds):
             voxel_size=voxel_size,
             # logger=self.logger.info
         )
-        if self.data_transfer.stop_event.is_set():
-            raise KeyboardInterrupt("Stopping ICP processing")
+
 
         # print("ICP Refined Transformation:")
         # print(result_icp.transformation)
@@ -146,18 +152,14 @@ class ICPProcessor(ProcessPointClouds):
         return self.global_map
 
     def rebuild_global_map(self, keyframes) -> None:
-        super().rebuild_global_map(keyframes)
+        super().rebuild_global_map(keyframes, self.config.voxel_size)
         self.outlier_removal()
-        # self.prev_downsample_freq = 10
-        # self.downsample_freq = 10
 
     def reset(self) -> None:
         """
         Reset the point cloud processor.
         """
         super().reset()
-        # self.prev_downsample_freq = 10
-        # self.downsample_freq = 10
 
     def EstimateCorrespondences(self, X: np.ndarray, Y: np.ndarray,
         t: np.ndarray, R: np.ndarray, dmax: float = 0.05) -> np.ndarray:

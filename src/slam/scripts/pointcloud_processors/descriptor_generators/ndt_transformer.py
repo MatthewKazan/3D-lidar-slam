@@ -8,10 +8,11 @@ from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK, PATH_TO_BUILD_N
 import torch
 import torch.nn as nn
 
-from scripts.state import state
 
 from scripts.pointcloud_processors.descriptor_generators.generic_descriptor_generator import \
     GenericDescriptorGenerator
+
+from scripts.config import SLAMConfig
 
 device = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -31,7 +32,7 @@ class NDTTransformer(GenericDescriptorGenerator):
     the database, converts it from pixels to meters and stores it in a global map.
     """
 
-    def __init__(self):
+    def __init__(self, config: SLAMConfig):
         """
 
         """
@@ -40,7 +41,7 @@ class NDTTransformer(GenericDescriptorGenerator):
                                output_dim=cfg.FEATURE_OUTPUT_DIM,
                                emb_dims=cfg.EMB_DIMS,
                                layer_number=cfg.LAYER_NUMBER)
-        model_path = state.get('ndt_config_path')
+        model_path = config.ndt_weights_path
         self.model = self.model.to(device)
 
         resume_filename = model_path

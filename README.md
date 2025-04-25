@@ -253,10 +253,6 @@ by updating the state singleton in [state.py](src/slam/scripts/state.py) to use 
 ---
 
 ## Known Issues
-- The iPhone app is not optimized for performance and absolutely destroys the battery life.
-- ICP algorithm is not optimized for large environments and can be slow as global map grows. If the environment is too large or the RAM
-  is too small, the system may crash. 
-- ICP is not robust to loop closure and can drift over time.
 - iPhone and ROS2 may not connect if the shared network does not allow LAN connections which is common on university networks.
 -  Could NOT find PythonInterp (missing: PYTHON_EXECUTABLE) or some other cmake error related to rosidl_generate_interfaces.
    One possible fix is running

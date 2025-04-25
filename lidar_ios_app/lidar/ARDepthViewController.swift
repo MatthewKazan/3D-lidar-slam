@@ -68,6 +68,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     @Published var availableAlgorithms: [String] = []
     var isLoading: Bool = false
     var cameraIntrinsics: CameraIntrinsics!
+    @Published var config : [String: Any]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -79,6 +80,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
 
         self.setIPAddress(ip: self.selectedIP)
         self.sendGetAlgorithmsRequest()
+        self.getCurrentConfig()
     }
 
     // MARK: - **Scanning Control Methods**
@@ -253,9 +255,7 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     }
     func sendToggleSaveInputRequest() {
         self.setIPAddress(ip: self.selectedIP)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.sendServiceRequest(service: "/toggle_save_inputs")
-        }
+        self.updateParameterValue(name: "is_saving_inputs", value: self.config.)
     }
     
     func sendGetAlgorithmsRequest() {
@@ -376,6 +376,27 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         return Point(x: xn, y: yn, z: z)
     }
     
+    func updateParameterValue(name: String, value: Any) {
+        let message: [String: Any] = [
+            "op":   "set_param",
+            "name": name,
+            "value": value
+        ]
+        send(json: message)
+    }
+    
+    // helper to serialize + send
+    private func send(json: [String:Any]) {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: json, options: [])
+            if let s = String(data: data, encoding: .utf8) {
+                socket?.write(string: s)
+                print("Sent: \(s)")
+            }
+        } catch {
+            print("JSON error:", error)
+        }
+    }
    
     
 }

@@ -14,6 +14,8 @@ from scripts.pointcloud_processors.pose_graph import PoseGraphGTSAMICP
 
 from scripts.paths import CONFIG_PATH
 
+from scripts.config import SLAMConfig
+
 
 class ProcessPointClouds(ABC):
     """
@@ -22,6 +24,7 @@ class ProcessPointClouds(ABC):
     """
 
     def __init__(self,
+        config: SLAMConfig,
         data_transfer: DataTransfer,
         logger,
     ):
@@ -32,6 +35,7 @@ class ProcessPointClouds(ABC):
         :param data_transfer: Thread-safe data object to send and receive pcs.
         """
         self.logger = logger
+        self.config = config
 
         self.global_map = o3d.geometry.PointCloud()
         self.point_clouds_in_map = 0
@@ -83,7 +87,7 @@ class ProcessPointClouds(ABC):
             self.pcs_to_align_with.append(point_cloud_3d)
             return copy.deepcopy(point_cloud_3d)
         # Transform the new point cloud into the global map frame and add to self.global_map
-        global_oriented_pc = self.construct_global_map(point_cloud_3d)
+        global_oriented_pc = self.construct_global_map(point_cloud_3d, self.config.voxel_size)
         self.pcs_to_align_with.append(global_oriented_pc)
         if len(self.pcs_to_align_with) > 10:
             # Keep the last 10 point clouds for alignment to save memory
@@ -102,7 +106,7 @@ class ProcessPointClouds(ABC):
         self.start_time = None
         time.sleep(1)
 
-    def rebuild_global_map(self, keyframes) -> None:
+    def rebuild_global_map(self, keyframes, voxel_size=None) -> None:
         """
         Rebuild the global map from the pose graph keyframes.
         """
@@ -115,8 +119,10 @@ class ProcessPointClouds(ABC):
             T = np.array(keyframe['pose'].matrix())
             pc = copy.deepcopy(keyframe['point_cloud'])
             # pc = pc.transform(T)
+            if voxel_size is not None:
+                pc = pc.voxel_down_sample(voxel_size)
 
-            self.global_map += pc.voxel_down_sample(0.02)
+            self.global_map += pc
             self.point_clouds_in_map += 1
             # self.previous_transformation.append(T)
             self.global_map = self.global_map
@@ -129,7 +135,7 @@ class ProcessPointClouds(ABC):
         self.logger.debug(f"Global map rebuilt from {len(keyframes)} keyframes")
 
     @abstractmethod
-    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=0.02) -> o3d.geometry.PointCloud:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> o3d.geometry.PointCloud:
         """
         Construct the global map from the point cloud.
         Store the global map in the global_map instance variable.

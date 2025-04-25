@@ -10,6 +10,10 @@ from scripts.algorithm_enum import AlgorithmType, DescriptorType
 
 from scripts.paths import CONFIG_PATH
 
+CONFIG_KEY_NAMES = [
+
+]
+
 
 class State:
     def __init__(self):

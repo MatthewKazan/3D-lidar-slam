@@ -12,6 +12,7 @@ import rclpy.logging
 import traceback
 from sklearn.metrics.pairwise import cosine_similarity
 
+from scripts.config import SLAMConfig
 
 
 def _show(pcs, ids):
@@ -31,10 +32,13 @@ from scripts.pointcloud_processors.utils.gtsam_utils import Submap, \
     pose_from_matrix
 from scripts.pointcloud_processors.utils.open3d_utils import \
     compute_icp_transformation, compute_multiscale_icp_transformation
+
+
 class PoseGraphGTSAMICP:
 
     def __init__(self,
         on_optimization_complete,
+        config: SLAMConfig,
         trans_thresh: float = .5,
         rot_thresh_deg: float = 7.5,
         loop_closure_similarity_threshold: float = .97,
@@ -45,6 +49,7 @@ class PoseGraphGTSAMICP:
         :param trans_thresh: Translation threshold for adding keyframe, in meters
         :param rot_thresh_deg: Rotation threshold for adding keyframe, in degrees
         """
+        self.config = config
         self.prev_keyframe_pose = np.eye(4)
         self.trans_thresh = trans_thresh
         self.rot_thresh_deg = rot_thresh_deg
@@ -117,7 +122,7 @@ class PoseGraphGTSAMICP:
         return translation_diff > self.trans_thresh or angle_deg > self.rot_thresh_deg
 
     def should_add_keyframe1(self, current_submap):
-        voxels = len(current_submap.voxel_down_sample(0.02).points)
+        voxels = len(copy.deepcopy(current_submap.points).voxel_down_sample(0.02))
         return voxels > 75000
 
     def update_pose_graph(self, trans: np.ndarray, scan_pc: o3d.geometry.PointCloud, gen_descriptor: Callable[[np.ndarray], np.ndarray]) -> None:
@@ -138,9 +143,9 @@ class PoseGraphGTSAMICP:
 
         # if not self.should_add_keyframe(trans, self.submap.matrix):
         #     return
-        if not self.should_add_keyframe1(self.submap):
+        if not self.submap.is_submap_complete(self.config.pose_graph.voxel_size, self.config.pose_graph.point_thresh):
             return
-        rclpy.logging.get_logger("pose_graph").info(f"points in submap {len(self.keyframes)}: {len(self.submap.point_cloud.voxel_down_sample(0.02).points)}")
+        # rclpy.logging.get_logger("pose_graph").info(f"points in submap {len(self.keyframes)}: {len(self.submap.point_cloud.voxel_down_sample(0.02).points)}")
         current_index = len(self.keyframes)
         self.submap.outlier_rejection()
         descriptor = gen_descriptor(self.submap.points)
@@ -148,7 +153,7 @@ class PoseGraphGTSAMICP:
         keyframe = {
             'pose': self.submap.pose,
             'descriptor': descriptor,
-            'point_cloud': self.submap.point_cloud,
+            'point_cloud': copy.deepcopy(self.submap.point_cloud),
         }
         self.submap = None
 

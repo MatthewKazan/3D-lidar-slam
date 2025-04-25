@@ -3,6 +3,7 @@ from enum import Enum
 
 class AlgorithmType(Enum):
     ICP = "ICP"
+    MULTISCALE_ICP = "MULTISCALE_ICP"
     DGR = "DGR"
 
 

@@ -3,14 +3,15 @@ import sys
 
 import open3d as o3d
 import rclpy.logging
+import torch
 
 from scripts.pointcloud_processors.pointcloud_registration.generic_point_cloud_processor import ProcessPointClouds
 from scripts.data_transfer import DataTransfer
 from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK
-from scripts.state import state
 
 from scripts.pointcloud_processors.utils.open3d_utils import \
     compute_icp_transformation, o3d_from_np_point_cloud, np_from_o3d_point_cloud
+from scripts.config import SLAMConfig
 
 # Set working directory to where DGR expects to be
 # There must be a better way to do this
@@ -29,6 +30,7 @@ class DGRProcessor(ProcessPointClouds):
     """
 
     def __init__(self,
+        config: SLAMConfig,
         data_transfer: DataTransfer,
     ):
         """
@@ -38,6 +40,7 @@ class DGRProcessor(ProcessPointClouds):
         :param data_transfer: Thread-safe data object to send and receive pcs.
         """
         super().__init__(
+            config,
             data_transfer,
             rclpy.logging.get_logger("DGR processor")
         )
@@ -48,13 +51,13 @@ class DGRProcessor(ProcessPointClouds):
             ros_args_index = sys.argv.index("--ros-args")
             sys.argv = sys.argv[:ros_args_index]  # Remove ROS arguments
         self.dgr_config = get_config()
-        self.dgr_config.weights = state.config['dgr_config']['weights']
+        self.dgr_config.weights = config.dgr_weights_path
         self.pcs_to_align_with = []
 
         self.dgr = dgr.DeepGlobalRegistration(self.dgr_config, device='cpu')
         self.max_points = 120000
 
-    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size=.02) -> None:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> None:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
@@ -73,6 +76,7 @@ class DGRProcessor(ProcessPointClouds):
                 points += len(pc.points)
 
         # point_cloud = point_cloud.voxel_down_sample(voxel_size)
+        # o3d_global_map = o3d_global_map.voxel_down_sample(voxel_size)
         # DGR just hangs seemingly indefinitely sometimes
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
 
@@ -81,6 +85,13 @@ class DGRProcessor(ProcessPointClouds):
         self.global_map += point_cloud
 
         return point_cloud
+
+    def rebuild_global_map(self, keyframes) -> None:
+        """
+        Rebuild the global map using the current point clouds.
+        """
+        super().rebuild_global_map(keyframes)
+        self.global_map = self.global_map.voxel_down_sample(self.config.voxel_size)
 
     # def downsample_global_map(self) -> np.ndarray:
         # """

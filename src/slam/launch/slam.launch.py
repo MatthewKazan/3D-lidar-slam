@@ -1,15 +1,19 @@
 import os
 
+from ament_index_python import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 os.environ["OMP_NUM_THREADS"] = "1"
-
+os.environ["RMW_IMPLEMENTATION"] = "rmw_cyclonedds_cpp"
+os.environ["CYCLONEDDS_URI"] = ""
+os.environ["RMW_FASTRTPS_USE_UDP"] = "1"
 
 def launch_setup(context, *args, **kwargs):
-
+    pkg_share = get_package_share_directory('slam')
+    cfg_file  = os.path.join(pkg_share, 'config', 'config.yaml')
     launch_nodes = [
         # Start the static transform publisher
         Node(
@@ -26,10 +30,11 @@ def launch_setup(context, *args, **kwargs):
         ),
         Node(
             package='slam',
-            executable='pub_sub',
-            # name='slam_pub_sub',
+            executable='test',
+            name='slam_processor',
             output='screen',
-            parameters=[{"algorithm": LaunchConfiguration('algorithm'), "config": LaunchConfiguration('config')}],
+            parameters=[cfg_file]
+            # parameters=[{"algorithm": LaunchConfiguration('algorithm'), "config": LaunchConfiguration('config')}],
 
         ),
         Node(
