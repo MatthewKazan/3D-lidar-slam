@@ -10,7 +10,7 @@ import yaml
 import open3d as o3d
 
 from scripts.data_transfer import DataTransfer
-from scripts.point_cloud_processors.pose_graph import PoseGraphGTSAMICP
+from scripts.pointcloud_processors.pose_graph import PoseGraphGTSAMICP
 
 from scripts.paths import CONFIG_PATH
 
@@ -65,7 +65,7 @@ class ProcessPointClouds(ABC):
         if point_cloud_pixel is None:
             return None
 
-        self.logger.info(
+        self.logger.debug(
             f"pcs processed so far: {self.point_clouds_in_map}")
 
         # point_cloud_3d = self.project_pixel_to_3d(point_cloud_pixel)
@@ -108,7 +108,7 @@ class ProcessPointClouds(ABC):
         """
         self.global_map = o3d.geometry.PointCloud()
         self.point_clouds_in_map = 0
-        self.previous_transformation = []
+        # self.previous_transformation = [np.eye(4)]
         self.pcs_to_align_with = []
 
         for i, keyframe in enumerate(keyframes):
@@ -118,11 +118,11 @@ class ProcessPointClouds(ABC):
 
             self.global_map += pc.voxel_down_sample(0.02)
             self.point_clouds_in_map += 1
-            self.previous_transformation.append(T)
+            # self.previous_transformation.append(T)
             self.global_map = self.global_map
 
             if i > len(keyframes) - 10:
-                self.pcs_to_align_with.append(pc)
+                self.pcs_to_align_with.append(keyframe['point_cloud'])
 
 
         # self.global_map = transformed_clouds

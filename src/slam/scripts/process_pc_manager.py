@@ -6,16 +6,22 @@ import numpy as np
 import rclpy.logging
 from rclpy.node import Node
 
-from scripts.algorithm_enum import AlgorithmType, processor_constructor
+from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
-from scripts.point_cloud_processors import ICPProcessor
-from scripts.point_cloud_processors import DGRProcessor
+from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor
+from scripts.pointcloud_processors.pointcloud_registration import DGRProcessor
 from  custom_interfaces.srv import SetAlgorithm
 from rclpy.service import SrvTypeResponse
 
-from scripts.point_cloud_processors.pose_graph import \
+from scripts.pointcloud_processors.pose_graph import \
     PoseGraphGTSAMICP
 from scripts.state import state
+
+from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
+    NDTTransformer
+
+from scripts.pointcloud_processors.descriptor_generators.scan_context import \
+    ScanContext
 
 
 class ProcessPointCloudsHandlerNode(Node):
@@ -28,7 +34,7 @@ class ProcessPointCloudsHandlerNode(Node):
         data_transfer: DataTransfer,
     ):
         super().__init__('process_point_clouds_handler')
-        self.algorithm = algorithm
+        # self.algorithm = algorithm
         self.processor_handler = ProcessPointCloudsHandler(
             algorithm=algorithm,
             data_transfer=data_transfer,
@@ -97,9 +103,13 @@ class ProcessPointCloudsHandler:
     ):
         self.data_transfer = data_transfer
 
-        self.algorithm = algorithm
+        self.cur_algorithm_type = None
         self.processor = None
-        self.set_algorithm(self.algorithm)
+        self.set_algorithm(state.get('algorithm_type', "ICP"))
+        state.subscribe('algorithm_type', self.set_algorithm)
+        self.cur_descriptor_type = None
+        self.descriptor = None
+        self.set_descriptor(state.get('descriptor_type', "NDT_T"))
 
         self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map)
         self.first_scan = True
@@ -125,7 +135,7 @@ class ProcessPointCloudsHandler:
             self.pose_graph.update_pose_graph(
                 trans=self.processor.previous_transformation[-1],
                 scan_pc=scan_pc,
-                gen_descriptor=state.descriptor_fn,
+                gen_descriptor=self.descriptor.generate_descriptor,
             )
 
             if self.data_transfer.stop_event.is_set():
@@ -148,14 +158,20 @@ class ProcessPointCloudsHandler:
             traceback.print_exc()
             raise
 
-    def set_algorithm(self, algorithm: str):
+    def set_algorithm(self, algorithm: AlgorithmType):
         """Set the processing algorithm safely using Enum."""
 
         algorithm = AlgorithmType[algorithm.upper()]
+
+        processor_constructor = {
+            AlgorithmType.ICP: ICPProcessor,
+            AlgorithmType.DGR: DGRProcessor
+        }
         constructor = processor_constructor[algorithm]
         self.processor = constructor(
             data_transfer=self.data_transfer,
         )
+        self.cur_algorithm_type = algorithm
 
         rclpy.logging.get_logger("processing_manager").info(
             f"Switched to algorithm: {algorithm}")
@@ -175,3 +191,18 @@ class ProcessPointCloudsHandler:
         rclpy.logging.get_logger("processing_manager").info("Resetting processor")
         self.processor.reset()
         self.pose_graph.reset()
+
+    def set_descriptor(self, descriptor_type) -> None:
+        """
+        Set the descriptor generator safely using Enum.
+
+        :param descriptor_type: The descriptor type to set.
+        """
+        descriptor_type = DescriptorType[descriptor_type.upper()]
+        if descriptor_type == DescriptorType.NDT_T:
+            self.descriptor = NDTTransformer()
+        elif descriptor_type == DescriptorType.SCAN_CONTEXT:
+            self.descriptor = ScanContext()
+
+    # def check_for_state_update
+

@@ -4,8 +4,6 @@ cloud data from the ros2, converts it from pixels to meters then does some
 algorithm to store it in a global map. All algorithms are subclasses of the
 ProcessPointClouds class. The ICPProcessor class aligns the new point cloud with
 """
-import multiprocessing
-import queue
 import time
 
 import numpy as np
@@ -14,12 +12,11 @@ import rclpy.logging
 from scipy.spatial import cKDTree
 
 from scripts.data_transfer import DataTransfer
-from scripts.point_cloud_processors.generic_point_cloud_processor import ProcessPointClouds
-from scripts.point_cloud_processors.utils.open3d_utils import \
+from scripts.pointcloud_processors.pointcloud_registration.generic_point_cloud_processor import ProcessPointClouds
+from scripts.pointcloud_processors.utils.open3d_utils import \
     compute_icp_transformation
 
 
-# from scripts.point_cloud_processors.generic_point_cloud_processor impor
 
 class ICPProcessor(ProcessPointClouds):
     """
@@ -87,11 +84,12 @@ class ICPProcessor(ProcessPointClouds):
 
         # print("time to get to align_point_clouds_with_icp: ", time.time() - self.start_time)
         # Downsample the clouds
-        icp_transformation = compute_icp_transformation(
+        icp_result = compute_icp_transformation(
             source_cloud=source_cloud,
             target_cloud=target_cloud,
             t_init=self.previous_transformation[-1],
             voxel_size=voxel_size,
+            # logger=self.logger.info
         )
         if self.data_transfer.stop_event.is_set():
             raise KeyboardInterrupt("Stopping ICP processing")
@@ -99,8 +97,8 @@ class ICPProcessor(ProcessPointClouds):
         # print("ICP Refined Transformation:")
         # print(result_icp.transformation)
         # self.logger.debug(f"Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}")
-        self.previous_transformation.append(icp_transformation)
-        return icp_transformation
+        self.previous_transformation.append(icp_result.transformation)
+        return icp_result.transformation
 
     def outlier_removal(self) -> None:
         """

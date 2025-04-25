@@ -3,13 +3,15 @@ from collections import defaultdict
 
 import numpy as np
 import rclpy.logging
-import yaml
-
-from scripts.data_transfer import DataTransfer
 
 from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK, PATH_TO_BUILD_NDT
 import torch
 import torch.nn as nn
+
+from scripts.state import state
+
+from scripts.pointcloud_processors.descriptor_generators.generic_descriptor_generator import \
+    GenericDescriptorGenerator
 
 device = (
     torch.device("cuda") if torch.cuda.is_available()
@@ -23,57 +25,58 @@ import libs.NDT_Transformer.models.NDTNetVlad as PNV
 import libs.NDT_Transformer.config as cfg
 
 
-class NDTTransformer:
+class NDTTransformer(GenericDescriptorGenerator):
     """
     A class to process and store point clouds. Gets raw point cloud data from
     the database, converts it from pixels to meters and stores it in a global map.
     """
 
-    def __init__(self, model_path: str):
+    def __init__(self):
         """
 
         """
+        super().__init__(rclpy.logging.get_logger("ndt_transformer"))
         self.model = PNV.NDTNetVlad(num_points=cfg.NUM_POINTS,
                                output_dim=cfg.FEATURE_OUTPUT_DIM,
                                emb_dims=cfg.EMB_DIMS,
                                layer_number=cfg.LAYER_NUMBER)
+        model_path = state.get('ndt_config_path')
         self.model = self.model.to(device)
 
         resume_filename = model_path
         checkpoint = torch.load(resume_filename, map_location=device)
         missing, unexpected = self.model.load_state_dict(checkpoint['state_dict'],
                                                     strict=False)
-        rclpy.logging.get_logger("processing_manager").info(f"Missing keys: {missing}")
-        rclpy.logging.get_logger("processing_manager").info(f"Unexpected keys: {unexpected}")
+        self.logger.debug(f"Missing keys: {missing}")
+        self.logger.debug(f"Unexpected keys: {unexpected}")
         self.model = nn.DataParallel(self.model)
         self.previous_points = None
+        self.scaling_factor = 20
 
-    def generate_descriptor(self, points: np.array, scaling_factor: float = 20) -> None:
+    def generate_descriptor(self, points: np.array) -> None:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
         :param points: The new point cloud to add to the global map
-        :param scaling_factor: The scaling factor to apply to the point cloud
-            This helps NDT transformer since it is trained on a different scale
 
         :return: The new point cloud transformed to align with the global map
         """
         self.model.eval()
 
-        points_tensor = reformat_ndt_input(points, scaling_factor)
+        points_tensor = reformat_ndt_input(points, self.scaling_factor, self.logger)
         with torch.no_grad():
             out = self.model(points_tensor)
 
         normal_out = out.detach().cpu().numpy()
 
-        rclpy.logging.get_logger("processing_manager").debug(
+        self.logger.debug(
             f"output point cloud of shape {normal_out.shape}")
 
         self.model.train()
 
         return normal_out
 
-def reformat_ndt_input(points: np.array, scaling_factor: float, voxel_size: float = 0.1) -> torch.Tensor:
+def reformat_ndt_input(points: np.array, scaling_factor: float, logger, voxel_size: float = 0.1) -> torch.Tensor:
     """
     Reformat the input point cloud to be compatible with the model.
 
@@ -85,7 +88,7 @@ def reformat_ndt_input(points: np.array, scaling_factor: float, voxel_size: floa
     :return: The reformatted point cloud to fit model input, must be [1, 1, 2000, 12]
         and the points must be passed through ndt_voxelize
     """
-    rclpy.logging.get_logger("processing_manager").debug(
+    logger.debug(
         f"Reformatting input point cloud of shape {points.shape}")
     points = points * scaling_factor
     points = ndt_voxelize(points, voxel_size=voxel_size * scaling_factor)
@@ -94,7 +97,7 @@ def reformat_ndt_input(points: np.array, scaling_factor: float, voxel_size: floa
     feed_tensor = feed_tensor.unsqueeze(0).unsqueeze(1).to(
         device)  # → [1, 1, N, 12]
 
-    rclpy.logging.get_logger("processing_manager").debug(
+    logger.debug(
         f"Reformatting input point cloud of shape {feed_tensor.size()}")
     return feed_tensor
 
@@ -113,7 +116,7 @@ def ndt_voxelize(points, voxel_size=.1, num_voxels=2000, min_points_per_voxel=5)
     :return: The voxelized point cloud with features
     """
     voxel_grid = defaultdict(list)
-
+    voxel_size, _ = downsample_to_target(points, 2000, 30, 20)
     # 1. Assign points to voxel grid cells
     voxel_indices = np.floor(points / voxel_size).astype(int)
     for idx, voxel_idx in enumerate(map(tuple, voxel_indices)):
@@ -169,3 +172,58 @@ def farthest_point_sample(points, num_samples):
         farthest = np.argmax(distances)
 
     return points[centroids]
+
+import open3d as o3d
+
+def downsample_to_target(pcd: np.array,
+                         target: int,
+                         tol: int,
+                         max_iters: int = 20) -> (float, np.array):
+    """
+    Find a voxel_size so that voxel_down_sample yields N in [target - tol, target + tol].
+
+    Args:
+      pcd:         your input PointCloud
+      target:      k * c  (desired number of points)
+      tol:         ±t tolerance
+      max_iters:   how many binary‐search steps to do
+
+    Returns:
+      A voxel‐downsampled PointCloud with approx target points.
+    """
+    def n_pts(vs):
+        return len(pcd.voxel_down_sample(vs).points)
+
+    o3d_pcd = o3d.geometry.PointCloud()
+    o3d_pcd.points = o3d.utility.Vector3dVector(pcd)
+    pcd = o3d_pcd
+
+    # 1) establish a bracket [low, high] where n_pts(low) >= target+t
+    #    and              n_pts(high) <= target - t
+    low, high = 0.0, 1.0
+    # grow high until we drop below (target - tol)
+    while n_pts(high) > target - tol:
+        low = high
+        high *= 2.0
+
+    # 2) binary search
+    best = pcd
+    for _ in range(max_iters):
+        mid = 0.5 * (low + high)
+        down = pcd.voxel_down_sample(mid)
+        N = len(down.points)
+
+        if abs(N - target) <= tol:
+            return mid, np.asarray(down.points)
+
+        # since N(vs) is decreasing in vs:
+        if N > target + tol:
+            # too many points → need coarser grid → increase vs
+            low = mid
+        else:
+            # too few points → need finer grid → decrease vs
+            high = mid
+
+        best = down
+
+    return mid, np.asarray(best.points)  # best effort if exact target±tol never hit

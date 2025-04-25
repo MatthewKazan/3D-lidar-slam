@@ -4,17 +4,14 @@ import sys
 import open3d as o3d
 
 from scripts.paths import PATH_TO_BUILD_NDT, PATH_TO_BUILD_ARKIT
-from scripts.point_cloud_processors.ndt_transformer import \
+from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
     NDTTransformer, ndt_voxelize1
 
-from src.slam.scripts.point_cloud_processors.ndt_transformer import \
+from src.slam.scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
     ndt_voxelize1
 
 sys.path.append(PATH_TO_BUILD_NDT)  # Ensure the path is in Python's search
 sys.path.append(PATH_TO_BUILD_ARKIT)  # Ensure the path is in Python's search
-
-import libs.NDT_Transformer.models.NDTNetVlad as PNV
-import libs.NDT_Transformer.config as cfg
 
 from libs.ARKitScenes.threedod.benchmark_scripts.utils.tenFpsDataLoader import TenFpsDataLoader
 import libs.ARKitScenes.threedod.benchmark_scripts.utils.taxonomy as taxonomy

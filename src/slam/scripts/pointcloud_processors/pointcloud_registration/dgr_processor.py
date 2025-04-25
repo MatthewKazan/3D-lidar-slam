@@ -4,12 +4,12 @@ import sys
 import open3d as o3d
 import rclpy.logging
 
-from scripts.point_cloud_processors.generic_point_cloud_processor import ProcessPointClouds
+from scripts.pointcloud_processors.pointcloud_registration.generic_point_cloud_processor import ProcessPointClouds
 from scripts.data_transfer import DataTransfer
 from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK
 from scripts.state import state
 
-from scripts.point_cloud_processors.utils.open3d_utils import \
+from scripts.pointcloud_processors.utils.open3d_utils import \
     compute_icp_transformation, o3d_from_np_point_cloud, np_from_o3d_point_cloud
 
 # Set working directory to where DGR expects to be
