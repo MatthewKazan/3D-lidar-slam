@@ -7,6 +7,10 @@ class PoseGraphConfig:
     voxel_size: float = 0.02
     do_pose_graph_optimization: bool = True
     point_thresh: int = 75000
+    loop_closure_similarity_threshold: float = 0.97 # [.8,.9] works for scan context
+    optimization_frequency: int = 2
+    min_keyframe_gap: int = 5
+    optimizer_verbosity: str = "ERROR"
 
 
 @dataclass

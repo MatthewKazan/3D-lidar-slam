@@ -234,8 +234,7 @@ and the global map is updated with the optimized poses.
 Loop closures are detected using the cosine simularity of the descriptors for each keyframes. The descriptors 
 can be constructed using the scan context descriptor function, or a descriptor constructed by an [NDT-Transformer model](https://arxiv.org/pdf/2103.12292).
 
-Currently the only way to update the descriptor function is to modify the state singleton in [state.py](src/slam/scripts/state.py) to use the new descriptor function.
-Future work will include a config file and/or ros2 service to update the descriptor function at runtime.
+
 
 The trained model used for NDT can be found [here](https://drive.google.com/file/d/1rJcswZsH05RZP3rMzfjWiwXXswikJgQd/view?usp=sharing)
 
@@ -248,7 +247,7 @@ To add a new algorithm, simply implement a new class that inherits from the abst
 in [algorithm_enum.py](src/slam/scripts/algorithm_enum.py).
 
 The function to construct a descriptor for each keyframe in the factor graph, is also easily changed
-by updating the state singleton in [state.py](src/slam/scripts/state.py) to use the new descriptor fn.
+by updating the descriptor_type ros2 parameter
 
 ---
 

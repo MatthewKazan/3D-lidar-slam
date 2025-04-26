@@ -1,25 +1,20 @@
-import dataclasses
 import multiprocessing
 import os
 import traceback
-from collections import deque
-from enum import Enum
 
+import numpy as np
 import rclpy.logging
-from rcl_interfaces.msg import SetParametersResult, ParameterEvent, \
-    ParameterType
-from rclpy.callback_groups import ReentrantCallbackGroup
+
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 
 from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
 from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor, DGRProcessor
 from custom_interfaces.srv import SetAlgorithm
-from rclpy.service import SrvTypeResponse
 
 from scripts.pointcloud_processors.pose_graph import \
     PoseGraphGTSAMICP
-from scripts.state import state
 
 from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
     NDTTransformer
@@ -33,7 +28,6 @@ from scripts.process_pc_manager import ProcessPointCloudsHandler
 
 from scripts.config import SLAMConfig
 
-from slam.mixins.subscriber_mixin import PointCloudSubscriberMixin
 from slam.mixins.publisher_mixin import PointCloudPublisherMixin
 from slam.mixins.config_handler import ConfigHandlerMixin
 
@@ -44,9 +38,10 @@ from slam.mixins.service_mixin import (
 )
 from std_srvs.srv import Trigger
 
+from slam.input_data_handler import run_subscriber_process
+
 
 class PointCloudSLAMNode(
-    PointCloudSubscriberMixin,
     PointCloudPublisherMixin,
     ConfigHandlerMixin,
     SimpleServiceMixin,
@@ -57,14 +52,12 @@ class PointCloudSLAMNode(
     """
 
     def __init__(self,
-        # algorithm: str,
-        # data_transfer: DataTransfer,
+        config: SLAMConfig,
+        data_transfer: DataTransfer,
     ):
         super().__init__('process_point_clouds_handler')
-        # self.algorithm = algorithm
-        # self.set_up_config_handler()
-        self.data_transfer = DataTransfer()
-        self.__init_pointclouds_subscriber__()
+        self.config = config
+        self.data_transfer = data_transfer
         self.__init_pointclouds_publisher__()
         self.__init_config_handler__()
         self.__init_simple_service_mixin__(
@@ -75,25 +68,15 @@ class PointCloudSLAMNode(
                                get_algorithms_list_callback),
             ]
         )
-        # 1) Create a separate callback group
-        self._param_cbg = ReentrantCallbackGroup()
-
-        # 2) Subscribe to parameter events in that group
-        self.create_subscription(
-            ParameterEvent,
-            '/parameter_events',  # global events topic
-            self._on_params_changed,
-            10,
-            callback_group=self._param_cbg)
 
 
         self.processor_handler = ProcessPointCloudsHandler(
             config=self.config,
             data_transfer=self.data_transfer,
         )
-        self.timer = self.create_timer(0.1, self.send_processing_request)
+        timer_cbg = MutuallyExclusiveCallbackGroup()
+        self.timer = self.create_timer(0.1, self.send_processing_request, callback_group=timer_cbg)
 
-        # self.processor_handler.start()
     def send_processing_request(self):
         """
         Send a processing request to the processor handler.
@@ -107,66 +90,15 @@ class PointCloudSLAMNode(
                 traceback.print_exc()
                 self.timer.cancel()
 
-    def reset(self):
+    def reset(self, _):
         """
         Reset the processor handler and pose graph.
         """
         self.processor_handler.reset()
+        self.data_transfer.reset()
+        self.publish_point_cloud(np.array([[0,0,0]]))
 
-    def _on_params_changed(self, params ):
-        # build a result, default to OK
-        successful = True
-        reason = ""
 
-        for p in params.changed_parameters:
-            name, pv = p.name, p.value
-            # Unpack into a plain Python value
-            if pv.type == ParameterType.PARAMETER_BOOL:
-                value = pv.bool_value
-            elif pv.type == ParameterType.PARAMETER_INTEGER:
-                value = pv.integer_value
-            elif pv.type == ParameterType.PARAMETER_DOUBLE:
-                value = pv.double_value
-            elif pv.type == ParameterType.PARAMETER_STRING:
-                value = pv.string_value
-            elif pv.type == ParameterType.PARAMETER_BYTE_ARRAY:
-                value = list(pv.byte_array_value)
-            elif pv.type == ParameterType.PARAMETER_BOOL_ARRAY:
-                value = list(pv.bool_array_value)
-            elif pv.type == ParameterType.PARAMETER_INTEGER_ARRAY:
-                value = list(pv.integer_array_value)
-            elif pv.type == ParameterType.PARAMETER_DOUBLE_ARRAY:
-                value = list(pv.double_array_value)
-            elif pv.type == ParameterType.PARAMETER_STRING_ARRAY:
-                value = list(pv.string_array_value)
-            else:
-                self.get_logger().warn(
-                    f"Unknown parameter type {pv.type} for '{name}'")
-                continue
-
-            # 1) find the field in SLAMConfig
-            field = next(
-                f for f in dataclasses.fields(SLAMConfig) if f.name == name)
-
-            # 2) convert enums if needed
-            if isinstance(field.type, type) and issubclass(field.type, Enum):
-                try:
-                    converted = field.type(value.upper())
-                except ValueError:
-                    successful = False
-                    reason = f"Invalid {name}={value}"
-                    break
-            else:
-                converted = value
-
-            # 3) setattr on your config instance
-            setattr(self.config, name, converted)
-            self.get_logger().info(f"Updated config.{name} = {converted}")
-
-            if name == "algorithm_type": self.processor_handler.set_algorithm(converted)
-            if name == "descriptor_type": self.processor_handler.set_descriptor(converted)
-
-        return SetParametersResult(successful=successful, reason=reason)
 
     def destroy_node(self):
         """
@@ -188,9 +120,17 @@ def main():
     os.environ["OMP_NUM_THREADS"] = "1"
     # End weirdness
     rclpy.init()
-    node = PointCloudSLAMNode()
-    executor = rclpy.executors.MultiThreadedExecutor()
+    config = SLAMConfig()
+    data_transfer = DataTransfer()
+    node = PointCloudSLAMNode(config=config, data_transfer=data_transfer)
+    executor = rclpy.executors.MultiThreadedExecutor(8)
     executor.add_node(node)
+
+    subscriber_proc = multiprocessing.Process(
+        target=run_subscriber_process, args=(data_transfer,config,), daemon=True
+    )
+    subscriber_proc.start()
+
     try:
         executor.spin()
     except KeyboardInterrupt:
@@ -199,8 +139,9 @@ def main():
         print(f"Executor crashed: {e}")
         traceback.print_exc()
     finally:
-        node.data_transfer.stop_event.set()
-
+        data_transfer.stop_event.set()
+        data_transfer.queue_shutdown()
+        subscriber_proc.join(5)
 
         executor.shutdown()
         node.destroy_node()

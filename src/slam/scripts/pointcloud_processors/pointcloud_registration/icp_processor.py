@@ -73,7 +73,7 @@ class ICPProcessor(ProcessPointClouds):
 
         point_cloud = point_cloud.voxel_down_sample(voxel_size).transform(icp_result_transformation)
         self.global_map += point_cloud
-        # self.outlier_removal()
+        self.outlier_removal()
 
         return point_cloud
 
@@ -113,10 +113,9 @@ class ICPProcessor(ProcessPointClouds):
         """
         # Pulled all of these numbers out of nowhere
         if self.point_clouds_in_map % self.downsample_freq == 0 or self.data_transfer.pixel_depth_map_queue.empty():
-            self.logger.info(
-                "downsampling and outlier removal on global map")
             self.logger.debug(
-                "started downsampling and outlier removal on global map")
+                "downsampling and outlier removal on global map")
+
 
             self.global_map = self.global_map.voxel_down_sample(0.001)
 
@@ -136,8 +135,6 @@ class ICPProcessor(ProcessPointClouds):
             self.global_map, _ = self.global_map.remove_statistical_outlier(
                 nb_neighbors=45, std_ratio=2.6)
 
-            self.logger.debug(
-                "stopped downsampling and outlier removal on global map")
 
     def downsample_global_map(self) -> np.ndarray:
         """

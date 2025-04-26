@@ -30,7 +30,7 @@ def launch_setup(context, *args, **kwargs):
         ),
         Node(
             package='slam',
-            executable='test',
+            executable='process',
             name='slam_processor',
             output='screen',
             parameters=[cfg_file]

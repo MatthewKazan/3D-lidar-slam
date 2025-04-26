@@ -51,7 +51,7 @@ class PointCloudPublisherMixin(GenericHandlerMixin):
         self.get_logger().info(
             "PointCloud publisher started.")
 
-    def reset(self):
+    def reset(self, _):
         """
         Resets the publisher node
         """

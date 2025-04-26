@@ -25,15 +25,13 @@ setup(
     zip_safe=True,
     maintainer='mattkazan',
     maintainer_email='Mattbkazan@gmail.com',
-    description='TODO: Package description',
+    description='SLAM framework via iPhone LiDAR',
     license='TODO: License declaration',
     entry_points={
         'console_scripts': [
-            'pub_sub = slam.pub_sub:main',
             'advertiser = slam.advertise_topic:main',
-            'display_bag = slam.display_bag:main',
             'rosbridge_websocket = slam.websocket:main',
-            'test = slam.processor_node:main',
+            'process = slam.processor_node:main',
         ],
     },
 )

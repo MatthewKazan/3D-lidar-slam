@@ -3,7 +3,6 @@ import sys
 
 import open3d as o3d
 import rclpy.logging
-import torch
 
 from scripts.pointcloud_processors.pointcloud_registration.generic_point_cloud_processor import ProcessPointClouds
 from scripts.data_transfer import DataTransfer
@@ -55,7 +54,7 @@ class DGRProcessor(ProcessPointClouds):
         self.pcs_to_align_with = []
 
         self.dgr = dgr.DeepGlobalRegistration(self.dgr_config, device='cpu')
-        self.max_points = 120000
+        self.max_points = 2000
 
     def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> None:
         """
@@ -76,7 +75,7 @@ class DGRProcessor(ProcessPointClouds):
                 points += len(pc.points)
 
         # point_cloud = point_cloud.voxel_down_sample(voxel_size)
-        # o3d_global_map = o3d_global_map.voxel_down_sample(voxel_size)
+        o3d_global_map = o3d_global_map.voxel_down_sample(voxel_size)
         # DGR just hangs seemingly indefinitely sometimes
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
 

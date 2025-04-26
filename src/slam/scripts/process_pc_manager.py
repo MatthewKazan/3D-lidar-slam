@@ -1,20 +1,16 @@
-import multiprocessing
 import time
 import traceback
 
 import numpy as np
 import rclpy.logging
-from rclpy.node import Node
 
 from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
 from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor, DGRProcessor
 from custom_interfaces.srv import SetAlgorithm
-from rclpy.service import SrvTypeResponse
 
 from scripts.pointcloud_processors.pose_graph import \
     PoseGraphGTSAMICP
-# from scripts.state import state
 
 from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
     NDTTransformer
@@ -38,16 +34,16 @@ class ProcessPointCloudsHandler:
     ):
         self.data_transfer = data_transfer
 
-        self.cur_algorithm_type = None
         self.processor = None
         self.config = config
         self.set_algorithm(config.algorithm_type)
-        self.cur_descriptor_type = None
         self.descriptor = None
         self.set_descriptor(config.descriptor_type)
 
-        self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map, self.config)
+        self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map, self.config, self.data_transfer)
         self.first_scan = True
+        self.times = []
+
 
     def process_loop(self) -> None:
         """
@@ -60,18 +56,23 @@ class ProcessPointCloudsHandler:
 
 
             start_time = time.time()
+
             ### Do actual data processing ###
+            if self.data_transfer.stop_event.is_set():
+                raise KeyboardInterrupt("Stopping processing")
             scan_pc = self.processor.process()
+            if self.data_transfer.stop_event.is_set():
+                raise KeyboardInterrupt("Stopping processing")
 
             if scan_pc is None:
                 return
             rclpy.logging.get_logger("processing_manager").debug(f"registration took {time.time() - start_time:.3f} seconds")
 
-            # self.pose_graph.update_pose_graph(
-            #     trans=self.processor.previous_transformation[-1],
-            #     scan_pc=scan_pc,
-            #     gen_descriptor=self.descriptor.generate_descriptor,
-            # )
+            self.pose_graph.update_pose_graph(
+                trans=self.processor.previous_transformation[-1],
+                scan_pc=scan_pc,
+                gen_descriptor=self.descriptor.generate_descriptor,
+            )
 
             if self.data_transfer.stop_event.is_set():
                 raise KeyboardInterrupt("Stopping processing")
@@ -80,7 +81,15 @@ class ProcessPointCloudsHandler:
             with self.data_transfer.global_map_lock:
                 global_map = np.asarray(self.processor.global_map.points)
                 self.data_transfer.global_map_queue.put(global_map)
-            rclpy.logging.get_logger("processing_manager").info(f"Processing took {time.time() - start_time:.3f} seconds")
+            end_time = time.time()
+            self.times.append(end_time - start_time)
+
+
+            rclpy.logging.get_logger("processing_manager").debug(f"Processing took {end_time - start_time:.3f} seconds")
+            if len(self.times) == 10:
+                rclpy.logging.get_logger("processing_manager").info(
+                    f"average processing time for last 10 scans: {np.mean(self.times):.3f} seconds")
+                self.times = []
 
         except KeyboardInterrupt:
             rclpy.logging.get_logger("processing_manager").info("Stopped by user 1")
@@ -131,7 +140,6 @@ class ProcessPointCloudsHandler:
             data_transfer=self.data_transfer,
             config=self.config,
         )
-        self.cur_algorithm_type = algorithm
 
         rclpy.logging.get_logger("processing_manager").info(
             f"Switched to algorithm: {algorithm}")

@@ -110,3 +110,57 @@ def o3d_from_np_point_cloud(points: np.ndarray) -> o3d.geometry.PointCloud:
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(points)
     return point_cloud
+
+
+def downsample_to_target(pcd: np.array,
+                         target: int,
+                         tol: int,
+                         max_iters: int = 20) -> (float, np.array):
+    """
+    Find a voxel_size so that voxel_down_sample yields N in [target - tol, target + tol].
+
+    Args:
+      pcd:         your input PointCloud
+      target:      k * c  (desired number of points)
+      tol:         ±t tolerance
+      max_iters:   how many binary‐search steps to do
+
+    Returns:
+      A voxel‐downsampled PointCloud with approx target points.
+    """
+    def n_pts(vs):
+        return len(pcd.voxel_down_sample(vs).points)
+
+    o3d_pcd = o3d.geometry.PointCloud()
+    o3d_pcd.points = o3d.utility.Vector3dVector(pcd)
+    pcd = o3d_pcd
+
+    # 1) establish a bracket [low, high] where n_pts(low) >= target+t
+    #    and              n_pts(high) <= target - t
+    low, high = 0.0, 1.0
+    # grow high until we drop below (target - tol)
+    while n_pts(high) > target - tol:
+        low = high
+        high *= 2.0
+
+    # 2) binary search
+    best = pcd
+    for _ in range(max_iters):
+        mid = 0.5 * (low + high)
+        down = pcd.voxel_down_sample(mid)
+        N = len(down.points)
+
+        if abs(N - target) <= tol:
+            return mid, np.asarray(down.points)
+
+        # since N(vs) is decreasing in vs:
+        if N > target + tol:
+            # too many points → need coarser grid → increase vs
+            low = mid
+        else:
+            # too few points → need finer grid → decrease vs
+            high = mid
+
+        best = down
+
+    return mid, np.asarray(best.points)  # best effort if exact target±tol never hit

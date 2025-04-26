@@ -255,7 +255,9 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     }
     func sendToggleSaveInputRequest() {
         self.setIPAddress(ip: self.selectedIP)
-        self.updateParameterValue(name: "is_saving_inputs", value: self.config.)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.sendServiceRequest(service: "/toggle_save_inputs")
+        }
     }
     
     func sendGetAlgorithmsRequest() {
