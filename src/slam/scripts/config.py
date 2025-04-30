@@ -1,7 +1,5 @@
-import ctypes
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from multiprocessing import Manager, Value
 
 from scripts.algorithm_enum import AlgorithmType, DescriptorType
 

@@ -108,7 +108,7 @@ class PointCloudSLAMNode(
                     self.processor_handler.set_descriptor(self.config.descriptor_type)
                 except ValueError:
                     continue
-                self.reset()
+
 
     def reset(self, _=None):
         """

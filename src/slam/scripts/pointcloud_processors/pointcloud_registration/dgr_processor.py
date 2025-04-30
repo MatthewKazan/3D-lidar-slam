@@ -2,6 +2,7 @@ import copy
 import os
 import sys
 
+import numpy as np
 import open3d as o3d
 import rclpy.logging
 
@@ -10,8 +11,12 @@ from scripts.data_transfer import DataTransfer
 from scripts.paths import PATH_TO_BUILD_DGR, PATH_TO_BUILD_MINK
 
 from scripts.pointcloud_processors.utils.open3d_utils import \
-    compute_icp_transformation, o3d_from_np_point_cloud, np_from_o3d_point_cloud
+    compute_icp_transformation, o3d_from_np_point_cloud, np_from_o3d_point_cloud, \
+    compute_multiscale_icp_transformation
 from scripts.config import SLAMConfig
+
+from scripts.pointcloud_processors.utils.open3d_utils import \
+    compute_multiscale_icp_transformation
 
 # Set working directory to where DGR expects to be
 # There must be a better way to do this
@@ -57,7 +62,7 @@ class DGRProcessor(ProcessPointClouds):
         self.dgr = dgr.DeepGlobalRegistration(self.dgr_config, device='cpu')
 
 
-    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> None:
+    def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> o3d.geometry.PointCloud:
         """
         Align the new point cloud with the global map using ICP and add it to the map.
 
@@ -71,21 +76,47 @@ class DGRProcessor(ProcessPointClouds):
         # DGR is a little whiny about the number of points it wants to align
 
         num_voxels = len(copy.deepcopy(point_cloud).voxel_down_sample(.05).points)
-        for i in range(len(self.pcs_to_align_with), 0, -1):
-            pc = self.pcs_to_align_with[i - 1]
+        for i in range(len(self.pcs_to_align_with) - 1, -1, -1):
+            pc = self.pcs_to_align_with[i]
+            if not self.is_valid_pointcloud(np.asarray(pc.points)):
+                self.pcs_to_align_with.pop(i)
+                continue
             if points < num_voxels * self.config.dgr_pc_scale_diff:
                 o3d_global_map += pc
                 points += len(copy.deepcopy(pc).voxel_down_sample(.05).points)
         # DGR just hangs seemingly indefinitely sometimes
         self.logger.debug("Starting DGR registration")
-        dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
-        self.logger.debug("DGR registration finished")
+
+        if not self.is_valid_pointcloud(np.asarray(point_cloud.points)) or not self.is_valid_pointcloud(np.asarray(o3d_global_map.points)):
+            self.logger.info(f"⚠️ Invalid point cloud detected. Skipping DGR registration.")
+            dgr_result_transformation = None
+        else:
+            dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
+            self.logger.debug("DGR registration finished")
+
+        if dgr_result_transformation is None:
+            self.logger.info("DGR registration failed, using ICP")
+            dgr_result_transformation = self.fallback_registration(point_cloud, voxel_size)
+
         self.previous_transformation.append(dgr_result_transformation)
         point_cloud = point_cloud.transform(dgr_result_transformation)
         self.global_map += copy.deepcopy(point_cloud).voxel_down_sample(self.config.voxel_size)
         self.outlier_removal()
 
         return point_cloud
+
+    def fallback_registration(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> o3d.geometry.PointCloud:
+        """
+        Fallback to multiscale ICP registration if DGR fails.
+        """
+        o3d_global_map = sum(self.pcs_to_align_with[1:], self.pcs_to_align_with[0])
+        icp_result = compute_multiscale_icp_transformation(
+            source_cloud=copy.deepcopy(point_cloud),
+            target_cloud=o3d_global_map,
+            t_init=self.previous_transformation[-1],
+            voxel_size=voxel_size,
+        )
+        return icp_result.transformation
 
     def rebuild_global_map(self, keyframes) -> None:
         """
@@ -106,3 +137,12 @@ class DGRProcessor(ProcessPointClouds):
         # point_cloud = point_cloud.voxel_down_sample(0.05)
         # self.global_map = np.asarray(point_cloud.points)
         # return point_cloud.points
+
+    def is_valid_pointcloud(self, pc: np.ndarray, min_points=100, allow_nan=False):
+        if pc.shape[0] < min_points:
+            # raise RuntimeError("Point cloud has less than 100 points")
+            return False
+        if not allow_nan and (np.isnan(pc).any() or np.isinf(pc).any()):
+            # raise RuntimeError("Point cloud has NaN or Inf values")
+            return False
+        return True
