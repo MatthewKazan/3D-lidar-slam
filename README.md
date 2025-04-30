@@ -292,3 +292,49 @@ New descriptor functions should inherit from the `GenericDescriptorGenerator` cl
     install_name_tool -add_rpath <correct_path> <path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/_C.cpython-39-darwin.so
     ```
   The correct path for me was just `<path_to_mamba_env>/lib/python3.9/site-packages/MinkowskiEngineBackend/`
+
+# Citations
+
+```latex
+@inproceedings{choy2020deep,
+  title={Deep Global Registration},
+  author={Choy, Christopher and Dong, Wei and Koltun, Vladlen},
+  booktitle={CVPR},
+  year={2020}
+}
+
+@inproceedings{choy2019fully,
+  title = {Fully Convolutional Geometric Features},
+  author = {Choy, Christopher and Park, Jaesik and Koltun, Vladlen},
+  booktitle = {ICCV},
+  year = {2019}
+}
+
+@inproceedings{choy20194d,
+  title={4D Spatio-Temporal ConvNets: Minkowski Convolutional Neural Networks},
+  author={Choy, Christopher and Gwak, JunYoung and Savarese, Silvio},
+  booktitle={CVPR},
+  year={2019}
+}
+
+@article{DBLP:journals/corr/abs-2103-12292,
+  author       = {Zhicheng Zhou and
+                  Cheng Zhao and
+                  Daniel Adolfsson and
+                  Songzhi Su and
+                  Yang Gao and
+                  Tom Duckett and
+                  Li Sun},
+  title        = {NDT-Transformer: Large-Scale 3D Point Cloud Localisation using the
+                  Normal Distribution Transform Representation},
+  journal      = {CoRR},
+  volume       = {abs/2103.12292},
+  year         = {2021},
+  url          = {https://arxiv.org/abs/2103.12292},
+  eprinttype    = {arXiv},
+  eprint       = {2103.12292},
+  timestamp    = {Tue, 08 Oct 2024 15:20:44 +0200},
+  biburl       = {https://dblp.org/rec/journals/corr/abs-2103-12292.bib},
+  bibsource    = {dblp computer science bibliography, https://dblp.org}
+}
+```
