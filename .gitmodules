@@ -1,0 +1,6 @@
+[submodule "libs/DeepGlobalRegistration"]
+	path = src/libs/libs/DeepGlobalRegistration
+	url = https://github.com/chrischoy/DeepGlobalRegistration.git
+[submodule "libs/MinkowskiEngine"]
+	path = src/libs/libs/MinkowskiEngine
+	url = https://github.com/NVIDIA/MinkowskiEngine.git

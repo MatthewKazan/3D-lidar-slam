@@ -1,9 +1,10 @@
+import os
+import sys
 from glob import glob
 
 from setuptools import find_packages, setup
 
 package_name = 'slam'
-
 setup(
     name=package_name,
     version='1.0.0',
@@ -14,20 +15,23 @@ setup(
         ('share/' + package_name + '/launch', ['launch/slam.launch.py']),
         ('share/' + package_name + '/config', glob('config/*')),
         ('share/' + package_name + '/scripts', glob('scripts/*.py')),
-        ("share/" + package_name + "/scripts/point_cloud_processors", glob("scripts/point_cloud_processors/*.py"))
-
+        ("share/" + package_name + "/scripts/pointcloud_processors", glob("scripts/pointcloud_processors/*.py")),
     ],
-    install_requires=['setuptools', 'rclpy', 'sensor_msgs'],
+    install_requires=[
+        'setuptools',
+        'rclpy',
+        'sensor_msgs',
+    ],
     zip_safe=True,
     maintainer='mattkazan',
     maintainer_email='Mattbkazan@gmail.com',
-    description='TODO: Package description',
+    description='SLAM framework via iPhone LiDAR',
     license='TODO: License declaration',
     entry_points={
         'console_scripts': [
-            'pub_sub = slam.pub_sub:main',
             'advertiser = slam.advertise_topic:main',
-            'display_bag = slam.display_bag:main',
+            'rosbridge_websocket = slam.websocket:main',
+            'process = slam.processor_node:main',
         ],
     },
 )

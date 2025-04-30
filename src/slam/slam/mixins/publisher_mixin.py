@@ -1,30 +1,34 @@
-import asyncio
 import os
+import queue
+import threading
+import time
+from typing import Any
 
+import rclpy
 import rosbag2_py
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, \
     HistoryPolicy
-from rclpy.serialization import serialize_message
 from rclpy.service import SrvTypeResponse
 from std_msgs.msg import Header
-from std_srvs.srv import Trigger
 import sensor_msgs_py.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
 import numpy as np
 from scripts.paths import PATH_TO_ROSBAGS, generate_unique_bag_name
 
 from scripts.data_transfer import DataTransfer
-from slam.generic_handler import GenericHandler
+import open3d as o3d
+
+from slam.mixins.generic_handler_mixin import GenericHandlerMixin
 
 
-class PointCloudPublisher(GenericHandler):
+class PointCloudPublisherMixin(GenericHandlerMixin):
     """
     A ROS 2 node that publishes a PointCloud2 message to the /global_map topic.
     Used to separate ros2 functionality from the slam functionality.
     """
-    def __init__(self, data_transfer: DataTransfer):
-        super().__init__('global_map_publisher', data_transfer)
+    def __init_pointclouds_publisher__(self):
+        super().__init_generic_handler__()
 
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -37,16 +41,17 @@ class PointCloudPublisher(GenericHandler):
                                                 qos_profile)
 
 
-        self.timer = self.create_timer(0.1, self.check_and_publish)
+        # self.timer = self.create_timer(0.1, self.check_and_publish)
 
         self.bag_dir_path = str(os.path.join(PATH_TO_ROSBAGS, 'global_maps'))
         self.global_writer = None
         self.global_map_ref = None
-
+        self.publisher_thread = threading.Thread(target=self.check_and_publish)
+        self.publisher_thread.start()
         self.get_logger().info(
             "PointCloud publisher started.")
 
-    def reset(self):
+    def reset(self, _):
         """
         Resets the publisher node
         """
@@ -70,7 +75,7 @@ class PointCloudPublisher(GenericHandler):
 
         cloud_msg = pc2.create_cloud_xyz32(header, points_np)
         self.publisher_.publish(cloud_msg)
-        self.get_logger().info(
+        self.get_logger().debug(
             f"Published {len(points_np)} points to /global_map.")
 
     def save_map_callback(self, request, response) -> SrvTypeResponse:
@@ -104,7 +109,12 @@ class PointCloudPublisher(GenericHandler):
             )
         )
         self.save_point_cloud(writer=self.global_writer, points=self.global_map_ref, topic_name='/global_map')
-        self.get_logger().info(f"Global map saved to {self.bag_dir_path}.")
+        self.get_logger().info(f"Global map saved to {global_bag_path}.")
+        point_cloud = o3d.geometry.PointCloud()
+        point_cloud.points = o3d.utility.Vector3dVector(self.global_map_ref)
+        o3d.io.write_point_cloud(os.path.join(global_bag_path,"global_map.ply"), point_cloud)
+        del self.global_writer
+
 
         response.success = True
         response.message = "Global map saved successfully."
@@ -115,10 +125,27 @@ class PointCloudPublisher(GenericHandler):
         """
         Check if there is new point cloud data in the queue and publish it.
         """
-        with self.data_transfer.global_map_lock:
-            if not self.data_transfer.global_map_queue.empty():
-                self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
+        while not self.data_transfer.stop_event.is_set():
+            with self.data_transfer.global_map_lock:
+                try:
+                    self.global_map_ref = self.data_transfer.global_map_queue.get_nowait()
+                except queue.Empty:
+                    # No new data to publish
+                    continue
                 if len(self.global_map_ref) > 0:
                     self.publish_point_cloud(self.global_map_ref)
+            time.sleep(.1)
 
 
+
+def one_shot_publisher(msg: Any, topic_name: str):
+    """
+    A one-shot publisher that publishes a single point cloud to the /global_map topic.
+    """
+    node = Node('one_off_publisher')
+    publisher = node.create_publisher(msg.__type__, topic_name, 10)
+    publisher.publish(msg)
+    node.get_logger().info(f"Published to {topic_name}.")
+    # Give it a short time to process the publish
+    rclpy.spin_once(node, timeout_sec=0.5)
+    node.destroy_node()

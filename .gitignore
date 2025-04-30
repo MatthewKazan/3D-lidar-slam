@@ -7,3 +7,4 @@ install/
 lidar/lidar.xcodeproj/project.xcworkspace/xcshareddata/
 lidar_server
 log/
+src/libs/libs/NDT_Transformer/checkpoint.pth.tar

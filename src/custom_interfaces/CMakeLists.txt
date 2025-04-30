@@ -1,0 +1,54 @@
+cmake_minimum_required(VERSION 3.8)
+project(custom_interfaces)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+# Explicitly set the Python executable inside the Conda/Mamba environment
+set(Python3_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python3")
+
+# Now find Python
+
+# Link necessary Python variables
+set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+set(PYTHON_INCLUDE_DIR ${Python3_INCLUDE_DIRS})
+set(PYTHON_LIBRARY ${Python3_LIBRARIES})
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
+message(STATUS "Python library: ${PYTHON_LIBRARY}")
+
+# find dependencies
+find_package(ament_cmake_core REQUIRED)  # for get_executable_path
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(std_msgs REQUIRED)
+
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+    "srv/GetAlgorithmsList.srv"
+    LIBRARY_NAME ${PROJECT_NAME}
+    DEPENDENCIES builtin_interfaces
+)
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  # the following line skips the linter which checks for copyrights
+  # comment the line when a copyright and license is added to all source files
+  set(ament_cmake_copyright_FOUND TRUE)
+  # the following line skips cpplint (only works in a git repo)
+  # comment the line when this package is in a git repo and when
+  # a copyright and license is added to all source files
+  set(ament_cmake_cpplint_FOUND TRUE)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+# Ensure the correct RPATH is set for macOS
+set(CMAKE_MACOSX_RPATH 1)
+
+# Set RPATH to include the installation directory
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+
+# Allow RPATH modifications (prevents install_name_tool errors)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+ament_package()

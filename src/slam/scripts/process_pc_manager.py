@@ -1,12 +1,25 @@
-import multiprocessing
 import time
+import traceback
 
+import numpy as np
 import rclpy.logging
 
-from scripts.algorithm_enum import AlgorithmType
+from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
-import scripts.point_cloud_processors
-from scripts.point_cloud_processors import ICPProcessor
+from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor, DGRProcessor
+
+from scripts.pointcloud_processors.pose_graph import \
+    PoseGraphGTSAMICP
+
+from scripts.pointcloud_processors.descriptor_generators.ndt_transformer import \
+    NDTTransformer
+
+from scripts.pointcloud_processors.descriptor_generators.scan_context import \
+    ScanContext
+
+from scripts.algorithm_constructors import processor_constructor
+
+from scripts.config import SLAMConfig
 
 
 class ProcessPointCloudsHandler:
@@ -15,88 +28,133 @@ class ProcessPointCloudsHandler:
     """
 
     def __init__(self,
-        algorithm: str,
-        config_path: str,
+        config: SLAMConfig,
         data_transfer: DataTransfer,
-        stop_event: multiprocessing.Event,
-        reset_event: multiprocessing.Event,
     ):
         self.data_transfer = data_transfer
 
-        self.stop_event = stop_event
-        self.reset_event = reset_event
-        self.config_path = config_path
-
-        self.algorithm = algorithm
         self.processor = None
+        self.config = config
+        self.set_algorithm(config.algorithm_type)
+        self.descriptor = None
+        self.set_descriptor(config.descriptor_type)
 
-        self.processor_thread = multiprocessing.Process(target=self.process_loop)
+        self.pose_graph = PoseGraphGTSAMICP(self.on_optimized_global_map, self.config, self.data_transfer)
+        self.first_scan = True
+        self.times = []
+
 
     def process_loop(self) -> None:
         """
         Start the point cloud processing thread. Should be run in a separate process.
         """
-        logger = rclpy.logging.get_logger("processing_manager")
-
         try:
-            self.processor = self.set_algorithm(self.algorithm)
+            if self.first_scan:
+                rclpy.logging.get_logger("processing_manager").info("Ready for point cloud processing")
+                self.first_scan = False
 
-            while not self.stop_event.is_set():
-                if self.reset_event.is_set():
-                    logger.info("Resetting processor")
-                    self.processor.reset()
-                    continue
-                if self.data_transfer.pixel_depth_map_queue.empty():
-                    time.sleep(0.1)
-                    continue
-                self.processor.process()
-                with self.data_transfer.global_map_lock:
-                    self.data_transfer.global_map_queue.put(self.processor.global_map)
+
+            start_time = time.time()
+
+            ### Do actual data processing ###
+            if self.data_transfer.stop_event.is_set():
+                raise KeyboardInterrupt("Stopping processing")
+            scan_pc = self.processor.process()
+            if self.data_transfer.stop_event.is_set():
+                raise KeyboardInterrupt("Stopping processing")
+
+            if scan_pc is None:
+                return
+            rclpy.logging.get_logger("processing_manager").debug(f"registration took {time.time() - start_time:.3f} seconds")
+
+            if self.config.pose_graph.enabled:
+                self.pose_graph.update_pose_graph(
+                    trans=self.processor.previous_transformation[-1],
+                    scan_pc=scan_pc,
+                    gen_descriptor=self.descriptor.generate_descriptor,
+                )
+
+            if self.data_transfer.stop_event.is_set():
+                raise KeyboardInterrupt("Stopping processing")
+
+            # Transform the point cloud to the global map queue for publishing
+            with self.data_transfer.global_map_lock:
+                global_map = np.asarray(self.processor.global_map.points)
+                self.data_transfer.global_map_queue.put(global_map)
+            end_time = time.time()
+            self.times.append(end_time - start_time)
+
+
+            rclpy.logging.get_logger("processing_manager").debug(f"Processing took {end_time - start_time:.3f} seconds")
+            if len(self.times) == 10:
+                rclpy.logging.get_logger("processing_manager").info(
+                    f"average processing time for last 10 scans: {np.mean(self.times):.3f} seconds")
+                self.times = []
 
         except KeyboardInterrupt:
-            logger.info("Stopped by user")
+            rclpy.logging.get_logger("processing_manager").info("Stopped by user 1")
+        except Exception as e:
+            """
+            Catch-all for any exceptions in the processing loop to avoid crashing the thread.
+            """
+            rclpy.logging.get_logger("processing_manager").error(
+                f"Exception in process loop: {e}, {type(e)}")
+            traceback.print_exc()
+            raise
 
-        # self.logger.info("shutting down processing loop")
-
-    def start(self) -> None:
+    def on_optimized_global_map(self, keyframes):
         """
-        Start the point cloud processing thread.
+        Callback for the pose graph optimizer to update the global map in the processor.
         """
-        self.processor_thread.start()
+        rclpy.logging.get_logger("processing_manager").debug(
+            f"Called Optimizer")
+        self.processor.rebuild_global_map(keyframes)
 
-    def stop(self) -> None:
+    def reset(self):
         """
-        Stop the point cloud processing thread.
+        Reset the point cloud processor.
         """
-        self.stop_event.set()
-        self.processor_thread.join(timeout=3)
+        rclpy.logging.get_logger("processing_manager").info("Resetting processor")
+        self.processor.reset()
+        self.pose_graph.reset()
 
-        if self.processor_thread.is_alive():
-            self.processor_thread.terminate()  # Force terminate if it doesn't stop
-            self.processor_thread.join()
+    def set_descriptor(self, descriptor_type) -> None:
+        """
+        Set the descriptor generator safely using Enum.
 
-    def set_algorithm(self, algorithm: str):
+        :param descriptor_type: The descriptor type to set.
+        """
+        # descriptor_type = DescriptorType[descriptor_type.upper()]
+        if descriptor_type == DescriptorType.NDT_T:
+            if type(self.descriptor) == NDTTransformer:
+                raise ValueError(
+                    f"Attempted to set descriptor to {descriptor_type} but it is already set to that type")
+            self.descriptor = NDTTransformer(config=self.config)
+        elif descriptor_type == DescriptorType.SCAN_CONTEXT and type(self.descriptor) != ScanContext:
+            if type(self.descriptor) == ScanContext:
+                raise ValueError(
+                    f"Attempted to set descriptor to {descriptor_type} but it is already set to that type")
+            self.descriptor = ScanContext()
+
+        rclpy.logging.get_logger("processing_manager").info(
+            f"Switched to descriptor: {descriptor_type}")
+
+    def set_algorithm(self, algorithm: AlgorithmType):
         """Set the processing algorithm safely using Enum."""
-        algorithm = AlgorithmType[algorithm.upper()]
-        if not isinstance(algorithm, AlgorithmType):
-            raise ValueError(f"Invalid algorithm type: {algorithm}")
 
-        self.algorithm = algorithm
-        if self.algorithm == AlgorithmType.ICP:
-            processor = ICPProcessor(
-                config_path=self.config_path,
-                data_transfer=self.data_transfer,
-                reset_event=self.reset_event
-            )
-        elif self.algorithm == AlgorithmType.DEEP_LEARNING:
-            processor = None
+        # algorithm = AlgorithmType[algorithm.upper()]
+
+        constructor = processor_constructor[algorithm]
+        if constructor is type(self.processor):
+            raise ValueError(
+                f"Algorithm {algorithm} already set, not changing")
         else:
-            raise ValueError(f"Unsupported algorithm: {algorithm}")
+            print("Different class, updating")
+            self.processor = constructor(
+                data_transfer=self.data_transfer,
+                config=self.config,
+            )
 
-        print(
-            f"Switched to algorithm: {self.algorithm.value}")  # Logging for debug
-        return processor
+        rclpy.logging.get_logger("processing_manager").info(
+            f"Switched to algorithm: {algorithm}")
 
-
-if __name__ == "__main__":
-    pass

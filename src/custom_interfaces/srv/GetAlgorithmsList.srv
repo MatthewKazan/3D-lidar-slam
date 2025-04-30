@@ -1,0 +1,8 @@
+# Request
+# (No fields because we just need to return the enum values)
+
+---
+
+# Response
+string[] algorithms
+string[] descriptors

@@ -1,4 +1,7 @@
 import multiprocessing
+import queue
+
+import rclpy.logging
 
 
 class DataTransfer:
@@ -10,20 +13,49 @@ class DataTransfer:
         """
         Initialize the data transfer object.
         """
+        self.pixel_depth_map_lock = multiprocessing.Lock()
         self.pixel_depth_map_queue = multiprocessing.Queue()
         self.global_map_queue = multiprocessing.Queue(1)
         self.global_map_lock = multiprocessing.Lock()
+
+        self.stop_event = multiprocessing.Event()
 
     def reset(self):
         """
         Reset the data transfer object.
         """
-        while not self.pixel_depth_map_queue.empty():
-            self.pixel_depth_map_queue.get()
+        with self.pixel_depth_map_lock:
+            while True:
+                try:
+                    rclpy.logging.get_logger("data_transfer").info(
+                        "Resetting pixel_depth_map_queue")
+                    self.pixel_depth_map_queue.get_nowait()  # Non-blocking get
+                except queue.Empty:
+                    break  # Stop when the queue is empty
+
         with self.global_map_lock:
-            if not self.global_map_queue.empty():
-                self.global_map_queue.get()
+            try:
+                rclpy.logging.get_logger("data_transfer").info(
+                    "Resetting global_map_queue")
+                self.global_map_queue.get_nowait()  # Non-blocking get
+            except queue.Empty:
+                return
 
-
-if __name__ == "__main__":
-    pass
+    def queue_shutdown(self):
+        """
+        Shutdown the queues.
+        """
+        if self.pixel_depth_map_queue is None or self.global_map_queue is None:
+            rclpy.logging.get_logger("data_transfer").info(
+                "Queues already closed or not initialized")
+            return
+        self.reset()
+        self.stop_event.set()
+        self.pixel_depth_map_queue.close()
+        self.global_map_queue.close()
+        self.pixel_depth_map_queue.join_thread()
+        self.global_map_queue.join_thread()
+        self.pixel_depth_map_queue = None
+        self.global_map_queue = None
+        rclpy.logging.get_logger("data_transfer").info(
+            "Queues closed and joined")
