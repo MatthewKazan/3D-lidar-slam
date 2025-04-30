@@ -138,18 +138,16 @@ iphone-lidar-slam/
 
 ## The iPhone app
 The iPhone app is in the lidar directory, its written in Swift and uses the ARKit library to capture pointclouds. The app uploads
-each scan to ROS2 via the rosbridge suite. This app is mostly a prototype and is not meant to look pretty.
-- Use the **Set IP** button to set the IP address of the computer running ROS2.
+each scan to ROS2 via the rosbridge suite.
 - Use the **Start Scanning** button to start the scan. The app will start capturing pointclouds and sending them to ROS2.
 - Use the **Stop Scanning** button to stop the scan. The app will stop capturing pointclouds.
-- Use the **Clear DB** button to reset the global map. This will clear all pointclouds stored in the ROS2 nodes or topics fully resetting the system.
-- Use the **Save Map** button to save the global map to a rosbag file.
-- Use the **Save Inputs** button to save each scan the app captures to a rosbag file. 
-Use this when working on processing algorithms to test on the same input data repeatedly.
-Tap this button again to stop saving inputs.
-
-To save multiple global maps use the save map button then reset the system using the clear db button.
-This will save the global map to a rosbag file and reset the system so the next global map will save to a different file name.
+- In the top right corner, tap the **Menu** button to open the a sidebar menu.
+  - Use the **Reset** button to reset the global map. This will clear all pointclouds stored in the ROS2 nodes or topics fully resetting the system.
+  - Use the **Save Global Map** button to save the global map to a rosbag file.
+  - Use the **Start/Stop Saving Inputs** button to start/stop saving each scan the app captures to a rosbag file. Helpful for testing different algorithms on the same input data.
+  - Use the **Select an Algorithm** button to select the point cloud registration algorithm to use for the SLAM system. 
+  - Use the **Select a Descriptor Fn** button to select the descriptor to use for the loop closure detection.
+  - Use the **Edit Other Parameters** button to edit any other parameters for the SLAM system. This includes the voxel size, and the number of keyframes to use for loop closure detection.
 
 ---
 
@@ -203,6 +201,19 @@ For example
 And the inputs will be sent to the SLAM system as if they were coming from the iPhone app.
 
 ---
+## Parameters
+
+The SLAM system has several parameters that can be configured in the `config.yaml` file.
+To see a full list, see the [config.yaml](src/slam/scripts/config.py) file.
+You can configure these parameters at the start via the yaml file, or you can change them at runtime
+by modifying the ros2 parameters via the iPhone app or via the command line.
+```bash
+ros2 param set /slam_processor <parameter_name> <value>
+```
+
+Set the parameters of the `/slam_processor` node, its the only node listening to the parameters updates.
+It will automatically update the parameters of the `/pointclouds_subscriber` node.
+---
 
 ## Algorithms
 
@@ -211,7 +222,7 @@ And the inputs will be sent to the SLAM system as if they were coming from the i
 The project can use the **Iterative Closest Point (ICP)** algorithm for matching LiDAR point clouds over time. 
 The point clouds are aligned using ICP, and the system estimates the pose of the LiDAR scanner in each frame.
 
-### Deep Learning Integration (Current Work)
+### Deep Learning Integration
 
 Several deep learning techniques will be integrated into the SLAM system for the following purposes:
 
@@ -234,8 +245,6 @@ and the global map is updated with the optimized poses.
 Loop closures are detected using the cosine simularity of the descriptors for each keyframes. The descriptors 
 can be constructed using the scan context descriptor function, or a descriptor constructed by an [NDT-Transformer model](https://arxiv.org/pdf/2103.12292).
 
-
-
 The trained model used for NDT can be found [here](https://drive.google.com/file/d/1rJcswZsH05RZP3rMzfjWiwXXswikJgQd/view?usp=sharing)
 
 ---
@@ -243,12 +252,13 @@ The trained model used for NDT can be found [here](https://drive.google.com/file
 ## Adding Algorithms
 
 The SLAM system is designed to be modular, allowing for easy integration of new algorithms and features.
-To add a new algorithm, simply implement a new class that inherits from the abstract base class `ProcessPointClouds` and update the Enum, and `processor_constructor` dict 
-in [algorithm_enum.py](src/slam/scripts/algorithm_enum.py).
+To add a new algorithm, simply implement a new class that inherits from the abstract base class `ProcessPointClouds` and update the `AlgorithmType` Enum, and `processor_constructor` dict 
+in [algorithm_enum.py](src/slam/scripts/algorithm_enum.py) and [algorithm_constructor.py](src/slam/scripts/algorithm_constructor.py) respectively.
 
-The function to construct a descriptor for each keyframe in the factor graph, is also easily changed
-by updating the descriptor_type ros2 parameter
+Create new descriptor functions by modifying the `DescriptorType` Enum and updating the `set_descriptor` function in [process_pc_manager.py](src/slam/scripts/process_pc_manager.py).
 
+New point cloud registration algorithms should inherit from the `ProcessPointClouds` class in [generic_point_cloud_processor.py](src/slam/scripts/pointcloud_registration/generic_point_cloud_processor.py) and implement the `construct_global_map` method.
+New descriptor functions should inherit from the `GenericDescriptorGenerator` class in [generic_descriptor_generator.py](src/slam/scripts/descriptor_generators/generic_descriptor_generator.py) and implement the `generate_descriptor` method.
 ---
 
 ## Known Issues

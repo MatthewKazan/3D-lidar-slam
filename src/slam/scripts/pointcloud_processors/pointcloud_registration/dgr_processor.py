@@ -82,7 +82,7 @@ class DGRProcessor(ProcessPointClouds):
         self.logger.debug("DGR registration finished")
         self.previous_transformation.append(dgr_result_transformation)
         point_cloud = point_cloud.transform(dgr_result_transformation)
-        self.global_map += point_cloud
+        self.global_map += copy.deepcopy(point_cloud).voxel_down_sample(self.config.voxel_size)
         self.outlier_removal()
 
         return point_cloud
