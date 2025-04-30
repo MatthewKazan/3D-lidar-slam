@@ -1,3 +1,4 @@
+import ctypes
 import multiprocessing
 import os
 import traceback
@@ -11,7 +12,6 @@ from rclpy.node import Node
 from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
 from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor, DGRProcessor
-from custom_interfaces.srv import SetAlgorithm
 
 from scripts.pointcloud_processors.pose_graph import \
     PoseGraphGTSAMICP
@@ -26,15 +26,14 @@ from scripts.algorithm_constructors import processor_constructor
 
 from scripts.process_pc_manager import ProcessPointCloudsHandler
 
-from scripts.config import SLAMConfig
+from scripts.config import SLAMConfig, dataclass_to_namespace
 
 from slam.mixins.publisher_mixin import PointCloudPublisherMixin
 from slam.mixins.config_handler import ConfigHandlerMixin
 
 from slam.mixins.service_mixin import (
     SimpleServiceMixin, ServiceMapping,
-    GetAlgorithmsList, get_algorithms_list_callback,
-    SetAlgorithmServiceMapping
+    GetAlgorithmsList, get_algorithms_list_callback
 )
 from std_srvs.srv import Trigger
 
@@ -90,7 +89,28 @@ class PointCloudSLAMNode(
                 traceback.print_exc()
                 self.timer.cancel()
 
-    def reset(self, _):
+    def handle_param_specifics(self, event):
+        """
+        Handle parameter changes. This function is called when parameters are changed.
+        """
+        for p in event.changed_parameters:
+            name = p.name
+            rclpy.logging.get_logger("processing_manager").info(
+                f"Parameter changed: {name}")
+            if name == "algorithm_type":
+                try:
+                    self.processor_handler.set_algorithm(self.config.algorithm_type)
+                except ValueError:
+                    continue
+                self.reset()
+            elif name == "descriptor_type":
+                try:
+                    self.processor_handler.set_descriptor(self.config.descriptor_type)
+                except ValueError:
+                    continue
+                self.reset()
+
+    def reset(self, _=None):
         """
         Reset the processor handler and pose graph.
         """
@@ -121,13 +141,14 @@ def main():
     # End weirdness
     rclpy.init()
     config = SLAMConfig()
+    shared_config = dataclass_to_namespace(config)
     data_transfer = DataTransfer()
-    node = PointCloudSLAMNode(config=config, data_transfer=data_transfer)
+    node = PointCloudSLAMNode(config=shared_config, data_transfer=data_transfer)
     executor = rclpy.executors.MultiThreadedExecutor(8)
     executor.add_node(node)
 
     subscriber_proc = multiprocessing.Process(
-        target=run_subscriber_process, args=(data_transfer,config,), daemon=True
+        target=run_subscriber_process, args=(data_transfer,shared_config,), daemon=True
     )
     subscriber_proc.start()
 

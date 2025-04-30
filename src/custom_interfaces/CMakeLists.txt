@@ -27,7 +27,6 @@ find_package(std_msgs REQUIRED)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-    "srv/SetAlgorithm.srv"
     "srv/GetAlgorithmsList.srv"
     LIBRARY_NAME ${PROJECT_NAME}
     DEPENDENCIES builtin_interfaces

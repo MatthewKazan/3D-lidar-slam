@@ -1,6 +1,6 @@
 import dataclasses
 
-from rcl_interfaces.msg import ParameterType, ParameterEvent
+from rcl_interfaces.msg import ParameterEvent
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from scripts.config import SLAMConfig
@@ -40,7 +40,7 @@ class ConfigHandlerMixin:
                 if issubclass(f.type, Enum):
                     default = default.value
                 self.declare_parameter(key, default)
-                self.get_logger().info(f"Declared parameter: {key} = {default!r}")
+                self.get_logger().debug(f"Declared parameter default: {key} = {default!r}")
 
     def update_config_from_params(self, config, dc_type,
         prefix: str = "") -> None:
@@ -76,57 +76,59 @@ class ConfigHandlerMixin:
                 setattr(config, f.name, raw)
                 self.get_logger().info(f"Config update: {key} → {raw!r}")
 
+    def handle_params_changed(
+            self, config, dc_type, changed_keys: set[str], prefix: str = ""
+        ) -> None:
+        """
+        Recursively pull values from ROS2 parameters into `config`,
+        but only update fields in `changed_keys`.
+
+        :param config:       The config dataclass (e.g. SLAMConfig).
+        :param dc_type:      The dataclass type.
+        :param changed_keys: A set of fully qualified parameter names that have changed.
+        :param prefix:       Dot‐separated prefix used in parameter names.
+        """
+        for f in dataclasses.fields(dc_type):
+            key = f"{prefix}.{f.name}" if prefix else f.name
+
+            if dataclasses.is_dataclass(f.type):
+                # Recurse if any nested keys match the prefix
+                nested_relevant = any(
+                    k.startswith(f"{key}.") for k in changed_keys)
+                if nested_relevant:
+                    child = getattr(config, f.name)
+                    self.handle_params_changed(child, f.type,
+                                                   changed_keys, key)
+                continue
+
+            if key not in changed_keys:
+                continue  # Skip keys that haven't changed
+
+            try:
+                raw = self.get_parameter(key).value
+            except Exception:
+                self.get_logger().warn(f"Parameter '{key}' not declared.")
+                continue
+
+            # Handle enums
+            if isinstance(f.type, type) and issubclass(f.type, Enum):
+                try:
+                    raw = f.type(raw.upper())
+                except ValueError:
+                    self.get_logger().error(
+                        f"Bad enum value for {key}: {raw}")
+                    continue
+
+            setattr(config, f.name, raw)
+            self.get_logger().info(f"Config updated: {key} → {raw!r}")
+
     def _on_params_changed(self, event):
         if event.node != self.get_fully_qualified_name():
             return
 
-        for p in event.changed_parameters:
-            name = p.name  # e.g. "pose_graph.optimization_frequency"
-            pv = p.value
+        changed_keys = {p.name for p in event.changed_parameters}
+        self.handle_params_changed(self.config, SLAMConfig,
+                                       changed_keys)
 
-            # Unpack into a plain Python value
-            if pv.type == ParameterType.PARAMETER_BOOL:
-                value = pv.bool_value
-            elif pv.type == ParameterType.PARAMETER_INTEGER:
-                value = pv.integer_value
-            elif pv.type == ParameterType.PARAMETER_DOUBLE:
-                value = pv.double_value
-            elif pv.type == ParameterType.PARAMETER_STRING:
-                value = pv.string_value
-            elif pv.type == ParameterType.PARAMETER_BYTE_ARRAY:
-                value = list(pv.byte_array_value)
-            elif pv.type == ParameterType.PARAMETER_BOOL_ARRAY:
-                value = list(pv.bool_array_value)
-            elif pv.type == ParameterType.PARAMETER_INTEGER_ARRAY:
-                value = list(pv.integer_array_value)
-            elif pv.type == ParameterType.PARAMETER_DOUBLE_ARRAY:
-                value = list(pv.double_array_value)
-            elif pv.type == ParameterType.PARAMETER_STRING_ARRAY:
-                value = list(pv.string_array_value)
-            else:
-                self.get_logger().warn(
-                    f"Unknown parameter type {pv.type} for '{name}'")
-                continue
-
-            # --- now handle nested field names ---
-            parts = name.split('.')
-            # top-level attr is parts[0]
-            attr = parts[0]
-            if not hasattr(self.config, attr):
-                self.get_logger().warn(f"No config field '{attr}'")
-                continue
-
-            if len(parts) == 1:
-                # simple case: top-level field
-                setattr(self.config, attr, value)
-
-            else:
-                # nested: walk into the dataclass
-                target = getattr(self.config, attr)
-                for sub in parts[1:-1]:
-                    target = getattr(target, sub)
-                setattr(target, parts[-1], value)
-
-            self.get_logger().info(f"Updated config.{name} = {value!r}")
-
+        self.handle_param_specifics(event)
 

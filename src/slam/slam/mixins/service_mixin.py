@@ -1,12 +1,8 @@
 from typing import List, Callable, Type, Generic, TypeVar, Any
 
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import Empty
 from custom_interfaces.srv import GetAlgorithmsList
-from custom_interfaces.srv import SetAlgorithm
 
-from scripts.algorithm_enum import AlgorithmType
+from scripts.algorithm_enum import AlgorithmType, DescriptorType
 
 ServiceT = TypeVar("ServiceT")
 
@@ -38,36 +34,6 @@ class SimpleServiceMixin:
             self.create_service(service_callback.service_type, service_callback.service_name, service_callback.callback)
 
 
-class SetAlgorithmServiceMapping(ServiceMapping):
-    """
-    Map a set_algorithm to a specific instance of its callback functions.
-    """
-    def __init__(self, callback: Callable[[Any, Any], Any]):
-        super().__init__("/set_algorithm", SetAlgorithm, self.callback)
-        self.callback_fn = callback
-
-
-    def callback(self, request, response) -> SetAlgorithm.Response:
-        """
-        Callback function to handle requests to set the algorithm.
-
-        :param request: The request object.
-        :param response: The response object.
-
-        :return: The response object with success status and message.
-        """
-        node = Node('one_off_publisher')
-        publisher = node.create_publisher(Empty, '/reset', 10)
-        msg = Empty()
-        publisher.publish(msg)
-        node.get_logger().info("Published reset.")
-        # Give it a short time to process the publish
-        rclpy.spin_once(node, timeout_sec=0.5)
-        node.destroy_node()
-        response = self.callback_fn(request, response)
-        return response
-
-
 def get_algorithms_list_callback(request, response) -> GetAlgorithmsList.Response:
     """
     Callback function to handle requests for the list of algorithms.
@@ -78,4 +44,5 @@ def get_algorithms_list_callback(request, response) -> GetAlgorithmsList.Respons
     :return: The response object with the list of algorithms.
     """
     response.algorithms = [e.value for e in AlgorithmType]
+    response.descriptors = [e.value for e in DescriptorType]
     return response

@@ -19,7 +19,7 @@ from slam.mixins.generic_handler_mixin import GenericHandlerMixin
 from slam.mixins.config_handler import ConfigHandlerMixin
 
 
-class PointClouds2Subscriber(GenericHandlerMixin, ConfigHandlerMixin, Node):
+class PointClouds2Subscriber(GenericHandlerMixin, Node):
     """
     A class to process and store point clouds. Gets raw point cloud data from
     the database, converts it from pixels to meters, and stores it in a global map.
@@ -35,7 +35,6 @@ class PointClouds2Subscriber(GenericHandlerMixin, ConfigHandlerMixin, Node):
         self.config = config
 
         self.__init_generic_handler__()
-        self.__init_config_handler__()
 
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
@@ -178,9 +177,13 @@ def run_subscriber_process(data_transfer, config):
     # Create subscriber node using the shared data_transfer object.
     subscriber_node = PointClouds2Subscriber(data_transfer, config)
 
+
     node = subscriber_node
     executor = MultiThreadedExecutor(2)
+    time.sleep(1)
     node.get_logger().info(f"Adding {node.get_name()} to executor")
+    node.get_logger().info(f"is saving inputs: {config.is_saving_inputs}")
+
     executor.add_node(node)
     try:
         executor.spin()  # Spin until shutdown

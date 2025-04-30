@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 
@@ -54,7 +55,7 @@ class DGRProcessor(ProcessPointClouds):
         self.pcs_to_align_with = []
 
         self.dgr = dgr.DeepGlobalRegistration(self.dgr_config, device='cpu')
-        self.max_points = 2000
+
 
     def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> None:
         """
@@ -68,20 +69,21 @@ class DGRProcessor(ProcessPointClouds):
         o3d_global_map = o3d.geometry.PointCloud()
         points = 0
         # DGR is a little whiny about the number of points it wants to align
+
+        num_voxels = len(copy.deepcopy(point_cloud).voxel_down_sample(.05).points)
         for i in range(len(self.pcs_to_align_with), 0, -1):
             pc = self.pcs_to_align_with[i - 1]
-            if points < self.max_points:
+            if points < num_voxels * self.config.dgr_pc_scale_diff:
                 o3d_global_map += pc
-                points += len(pc.points)
-
-        # point_cloud = point_cloud.voxel_down_sample(voxel_size)
-        o3d_global_map = o3d_global_map.voxel_down_sample(voxel_size)
+                points += len(copy.deepcopy(pc).voxel_down_sample(.05).points)
         # DGR just hangs seemingly indefinitely sometimes
+        self.logger.debug("Starting DGR registration")
         dgr_result_transformation = self.dgr.register(point_cloud, o3d_global_map)
-
+        self.logger.debug("DGR registration finished")
         self.previous_transformation.append(dgr_result_transformation)
         point_cloud = point_cloud.transform(dgr_result_transformation)
         self.global_map += point_cloud
+        self.outlier_removal()
 
         return point_cloud
 
@@ -91,6 +93,7 @@ class DGRProcessor(ProcessPointClouds):
         """
         super().rebuild_global_map(keyframes)
         self.global_map = self.global_map.voxel_down_sample(self.config.voxel_size)
+
 
     # def downsample_global_map(self) -> np.ndarray:
         # """

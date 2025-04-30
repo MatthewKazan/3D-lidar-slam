@@ -2,24 +2,34 @@ import SwiftUI
 
 @main
 struct MyARApp: App {
-    // Create a single instance of your view controller
     @StateObject private var arViewController = ARDepthViewController()
+    @StateObject private var state: ROS2AppState
+
+    init() {
+        // Assign the shared state from the controller here
+        let controller = ARDepthViewController()
+        _arViewController = StateObject(wrappedValue: controller)
+        _state = StateObject(wrappedValue: controller.state)
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(arViewController)
+                .environmentObject(state)
         }
     }
 }
 
 struct ContentView: View {
     @State private var isSidebarOpen = false
-    @State private var selectedOption = ""
+    @State private var selectedAlg = ""
+    @State private var selectedDesc = ""
     @State private var isScanning = false
     @State private var isShowingIPMenu = false
-    @State private var isSavingInputs = false
     @EnvironmentObject var viewController: ARDepthViewController
+    @EnvironmentObject var state: ROS2AppState
+
 
     @State private var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? ""
     
@@ -55,6 +65,7 @@ struct ContentView: View {
                 Button(action: {
                     isScanning.toggle()
                     viewController.toggleScanning()
+//                    state.triggerRefresh()
                     
                 }) {
                     Text(isScanning ? "Stop Scanning" : "Start Scanning")
@@ -64,7 +75,7 @@ struct ContentView: View {
                         .cornerRadius(10)
                 }
                 .padding(.bottom, 10)
-                Text("Num Scans: \(viewController.num_scans)")
+                Text("Num Scans: \(state.numScans)")
                     .padding()
 //                    .background(Color.blue)
                     .foregroundColor(.white)
@@ -77,13 +88,15 @@ struct ContentView: View {
             }
             if isSidebarOpen {
                 SidebarView(isSidebarOpen: $isSidebarOpen,
-                            selectedOption: $selectedOption,
+                            selectedAlg: $selectedAlg,
+                            selectedDesc: $selectedDesc,
                             isShowingIPMenu: $isShowingIPMenu,
-                            isSavingInputs: $isSavingInputs
                             )
                     .frame(width: 250)
                     .transition(.move(edge: .leading))
                     .zIndex(1)
+                    .environmentObject(viewController)
+                    .environmentObject(state)
             }
             if isShowingIPMenu {
                 IPMenu(isShowing: $isShowingIPMenu, selectedIP: $selectedIP)
@@ -98,10 +111,13 @@ struct ContentView: View {
 
 struct SidebarView: View {
     @Binding var isSidebarOpen: Bool
-    @Binding var selectedOption: String
+    @Binding var selectedAlg: String
+    @Binding var selectedDesc: String
     @Binding var isShowingIPMenu: Bool
-    @Binding var isSavingInputs: Bool
+    @State private var isShowingParamEditor = false
+
     @EnvironmentObject var viewController: ARDepthViewController
+    @EnvironmentObject var state: ROS2AppState
 
 
         
@@ -132,7 +148,6 @@ struct SidebarView: View {
             }
                 .padding()
             Button("Reset") {
-                self.isSavingInputs = false
                 viewController.sendResetRequest()
 
             }
@@ -143,9 +158,10 @@ struct SidebarView: View {
             }
             .padding()
             
-            Button(isSavingInputs ? "Stop Saving Inputs" : "Start Saving Inputs") {
-                viewController.sendToggleSaveInputRequest()
-                isSavingInputs.toggle()
+            Button(state.isSavingInputs ? "Stop Saving Inputs" : "Start Saving Inputs") {
+                DispatchQueue.main.async {
+                    viewController.sendToggleSaveInputRequest()
+                }
             }
                 .padding()
             
@@ -155,12 +171,12 @@ struct SidebarView: View {
             .font(.headline)
             .padding()
 
-            Picker("Options", selection: $selectedOption) {
-                if viewController.availableAlgorithms.isEmpty {
+            Picker("Options", selection: $state.cur_algorithm) {
+                if viewController.state.availableAlgorithms.isEmpty {
                     Text("Loading...").tag("")
                 } else {
                     Text("").tag("")
-                    ForEach(viewController.availableAlgorithms, id: \.self) { option in
+                    ForEach(state.availableAlgorithms, id: \.self) { option in
                         Text(option).tag(option)
                     }
                 }
@@ -168,13 +184,56 @@ struct SidebarView: View {
             .pickerStyle(.automatic)
             .padding()
             .onAppear {
-                print("picker appeared")
-                viewController.sendGetAlgorithmsRequest() // Request data when view appears
+                DispatchQueue.main.async {
+                    viewController.sendGetAlgorithmsRequest()
+                }
             }
-            .onChange(of: selectedOption) {
-                self.isSavingInputs = false
-                viewController.changeAlgorithms(alg_str: selectedOption)
+            .onChange(of: state.cur_algorithm) {
+                DispatchQueue.main.async {
+                    viewController.changeAlgorithms(alg_str: state.cur_algorithm)
+                }
             }
+            
+            Divider()
+            
+            Text("Select a Descriptor Fn:")
+            .font(.headline)
+            .padding()
+
+            Picker("Options", selection: $state.cur_descriptor) {
+                if viewController.state.availableDescriptors.isEmpty {
+                    Text("Loading...").tag("")
+                } else {
+                    Text("").tag("")
+                    ForEach(state.availableDescriptors, id: \.self) { option in
+                        Text(option).tag(option)
+                    }
+                }
+            }
+            .pickerStyle(.automatic)
+            .padding()
+            .onAppear {
+                DispatchQueue.main.async {
+                    
+                    viewController.sendGetAlgorithmsRequest()
+                }
+            }
+            .onChange(of: viewController.state.cur_descriptor) {
+                DispatchQueue.main.async {
+                    viewController.changeDescriptor(desc_str: state.cur_descriptor)
+                }
+            }
+            
+            Divider()
+            
+            Button("Edit Other Parameters") {
+                withAnimation {
+//                    isSidebarOpen.toggle()
+                    isShowingParamEditor.toggle()
+                }
+            }
+            .padding()
+
 
             
             Spacer()
@@ -183,8 +242,58 @@ struct SidebarView: View {
         .background(Color(.systemGray6))
         .edgesIgnoringSafeArea(.vertical)
         .offset(x: 0, y: 0)
+        .fullScreenCover(isPresented: $isShowingParamEditor) {
+            let vm = ParameterEditViewModel(parameters: state.parameters)
+
+            ParameterEditorView(viewModel: vm) { updatedParams in
+                let changedParams = vm.getChangedParams()
+                for param in changedParams {
+                    viewController.sendSetParameter(param: param)
+                }
+                isShowingParamEditor = false
+            }
+        }
     }
 }
+
+struct ParameterEditorView: View {
+    @ObservedObject var viewModel: ParameterEditViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var onSubmit: ([Parameter]) -> Void
+
+    var body: some View {
+        VStack {
+            Button("Cancel") {
+                dismiss()
+            }
+            .padding()
+            .foregroundColor(.red)
+            ScrollView {
+                ForEach($viewModel.editableParameters) { $param in
+                    VStack(alignment: .leading) {
+                        Text("\(param.name) (Type \(param.type))")
+                            .font(.headline)
+                        TextField("Value", text: $param.rawValue)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                    }
+                    .padding()
+                }
+            }
+
+            Button("Submit All") {
+                let params = viewModel.getChangedParams()
+                onSubmit(params)
+            }
+            .padding()
+            .background(Color.blue)
+            .foregroundColor(.white)
+            .cornerRadius(8)
+            .padding()
+        }
+    }
+}
+
 
 struct IPMenu: View {
     @Binding var isShowing: Bool

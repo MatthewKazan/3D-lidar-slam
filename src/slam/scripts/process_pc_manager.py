@@ -7,7 +7,6 @@ import rclpy.logging
 from scripts.algorithm_enum import AlgorithmType, DescriptorType
 from scripts.data_transfer import DataTransfer
 from scripts.pointcloud_processors.pointcloud_registration import ICPProcessor, DGRProcessor
-from custom_interfaces.srv import SetAlgorithm
 
 from scripts.pointcloud_processors.pose_graph import \
     PoseGraphGTSAMICP
@@ -68,11 +67,12 @@ class ProcessPointCloudsHandler:
                 return
             rclpy.logging.get_logger("processing_manager").debug(f"registration took {time.time() - start_time:.3f} seconds")
 
-            self.pose_graph.update_pose_graph(
-                trans=self.processor.previous_transformation[-1],
-                scan_pc=scan_pc,
-                gen_descriptor=self.descriptor.generate_descriptor,
-            )
+            if self.config.pose_graph.enabled:
+                self.pose_graph.update_pose_graph(
+                    trans=self.processor.previous_transformation[-1],
+                    scan_pc=scan_pc,
+                    gen_descriptor=self.descriptor.generate_descriptor,
+                )
 
             if self.data_transfer.stop_event.is_set():
                 raise KeyboardInterrupt("Stopping processing")
@@ -126,9 +126,18 @@ class ProcessPointCloudsHandler:
         """
         # descriptor_type = DescriptorType[descriptor_type.upper()]
         if descriptor_type == DescriptorType.NDT_T:
+            if type(self.descriptor) == NDTTransformer:
+                raise ValueError(
+                    f"Attempted to set descriptor to {descriptor_type} but it is already set to that type")
             self.descriptor = NDTTransformer(config=self.config)
-        elif descriptor_type == DescriptorType.SCAN_CONTEXT:
+        elif descriptor_type == DescriptorType.SCAN_CONTEXT and type(self.descriptor) != ScanContext:
+            if type(self.descriptor) == ScanContext:
+                raise ValueError(
+                    f"Attempted to set descriptor to {descriptor_type} but it is already set to that type")
             self.descriptor = ScanContext()
+
+        rclpy.logging.get_logger("processing_manager").info(
+            f"Switched to descriptor: {descriptor_type}")
 
     def set_algorithm(self, algorithm: AlgorithmType):
         """Set the processing algorithm safely using Enum."""
@@ -136,10 +145,15 @@ class ProcessPointCloudsHandler:
         # algorithm = AlgorithmType[algorithm.upper()]
 
         constructor = processor_constructor[algorithm]
-        self.processor = constructor(
-            data_transfer=self.data_transfer,
-            config=self.config,
-        )
+        if constructor is type(self.processor):
+            raise ValueError(
+                f"Algorithm {algorithm} already set, not changing")
+        else:
+            print("Different class, updating")
+            self.processor = constructor(
+                data_transfer=self.data_transfer,
+                config=self.config,
+            )
 
         rclpy.logging.get_logger("processing_manager").info(
             f"Switched to algorithm: {algorithm}")

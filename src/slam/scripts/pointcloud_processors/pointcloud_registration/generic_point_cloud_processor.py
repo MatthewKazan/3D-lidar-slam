@@ -132,6 +132,34 @@ class ProcessPointClouds(ABC):
         # self.global_map = transformed_clouds
         self.logger.debug(f"Global map rebuilt from {len(keyframes)} keyframes")
 
+    def outlier_removal(self) -> None:
+        """
+        Do some basic point cloud processing on the global map every few point
+        clouds, remove outliers, downsample, etc. Used by subsclasses when wanted.
+        """
+        # Pulled all of these numbers out of nowhere
+        if self.point_clouds_in_map % self.config.downsample_freq == 0 or self.data_transfer.pixel_depth_map_queue.empty():
+            self.logger.debug(
+                "downsampling and outlier removal on global map")
+
+
+            self.global_map = self.global_map.voxel_down_sample(0.001)
+            # if self.point_clouds_in_map % 40 == 0:
+            #     point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
+            #         nb_neighbors=80, std_ratio=2)
+            #     # This is slow but seems to make a difference
+            #     point_cloud_map, _ = point_cloud_map.remove_radius_outlier(
+            #         nb_points=8, radius=0.023)
+            #
+            #     self.global_map = np.asarray(point_cloud_map.points)
+            #     self.logger.info(
+            #         "stopped downsampling and outlier removal on global map")
+            #
+            #     return
+
+            self.global_map, _ = self.global_map.remove_statistical_outlier(
+                nb_neighbors=self.config.rso_nb_neighbors, std_ratio=self.config.rso_std_ratio)
+
     @abstractmethod
     def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> o3d.geometry.PointCloud:
         """

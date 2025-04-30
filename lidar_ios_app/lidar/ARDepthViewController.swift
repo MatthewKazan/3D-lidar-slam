@@ -8,6 +8,7 @@
 import UIKit
 import ARKit
 import Starscream
+import SwiftUICore
 
 struct Point: Codable {
     var x: Float
@@ -56,19 +57,14 @@ struct CameraIntrinsics: Codable {
 /// - Sends data via a **WebSocket connection**.
 /// - Provides start/stop functionality for scanning.
 /// - Handles WebSocket reconnections automatically.
-class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDelegate, ObservableObject {
+class ARDepthViewController: UIViewController, ARSessionDelegate, ObservableObject {
     var arView: ARSCNView!
     var capturedPointCloud: [SIMD3<Float>] = []
     var isScanning = false
     var scanningTimer: DispatchSourceTimer?//Timer?
-    var socket: WebSocket?
-    var isConnected = false  // ✅ Track WebSocket connection status
-    var selectedIP = UserDefaults.standard.string(forKey: "SavedIP") ?? "172.20.10.7"
-    @Published var num_scans = 0
-    @Published var availableAlgorithms: [String] = []
-    var isLoading: Bool = false
     var cameraIntrinsics: CameraIntrinsics!
-    @Published var config : [String: Any]
+    var connectionManager: ROS2ConnectionManager?
+    @ObservedObject var state = ROS2AppState()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -78,9 +74,13 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         self.view.addSubview(arView)
         arView.session.delegate = self
 
-        self.setIPAddress(ip: self.selectedIP)
-        self.sendGetAlgorithmsRequest()
-        self.getCurrentConfig()
+        self.setIPAddress(ip: self.state.selectedIP)
+        self.connectionManager = ROS2ConnectionManager(ip: self.state.selectedIP, state: self.state)
+        self.state.connectionManager = self.connectionManager
+        self.connectionManager?.connect()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.state.triggerRefresh()
+        }
     }
 
     // MARK: - **Scanning Control Methods**
@@ -88,14 +88,14 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     /// Starts LiDAR scanning and begins sending point cloud data.
     func startScanning() {
         if isScanning { return }
-        self.setIPAddress(ip: self.selectedIP)
+//        self.setIPAddress(ip: self.state.selectedIP)
         // Enable LiDAR depth data collection
         let configuration = ARWorldTrackingConfiguration()
         configuration.frameSemantics = .sceneDepth
         // Delay to ensure ARKit fully resets
         self.arView.session.run(configuration, options: [.resetTracking, .removeExistingAnchors])
         
-        num_scans = 0
+        self.state.numScans = 0
         let sessionStartTime = CACurrentMediaTime()
         isScanning = true
 //        scanningTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
@@ -198,10 +198,9 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
             "is_dense": true
         ]
         DispatchQueue.main.async {
-            self.num_scans += 1
+            self.state.numScans += 1
         }
-        print(num_scans)
-        self.publishToTopic(msg: pointCloudMessage, topic: "/input_pointcloud")
+        self.connectionManager?.publishToTopic(msg: pointCloudMessage, topic: "/input_pointcloud")
         let newTime = Date()
         print(newTime.timeIntervalSince1970 - timeInterval)
     }
@@ -211,28 +210,11 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
     /// Establishes a WebSocket connection to the **ROS2 bridge server**.
     func setIPAddress(ip: String) {
         print("Setting new IP: \(ip)")
-        self.selectedIP = ip
-        self.socket?.disconnect()  // ✅ Ensure clean disconnect before reconnecting
-        
-        var request = URLRequest(url: URL(string: "ws://\(self.selectedIP):9090")!)
-        request.timeoutInterval = 1
-        // A lot of the following probably isn't necessary but the websocket has been finnicky so im not touching it
-        // ✅ Force WebSocket to send packets immediately (disable Nagle’s Algorithm)
-        request.setValue("Upgrade", forHTTPHeaderField: "Connection")
-        request.setValue("Keep-Alive", forHTTPHeaderField: "Proxy-Connection")
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-
-        // ✅ Enable WebSocket compression (reduces data size)
-        request.setValue("permessage-deflate", forHTTPHeaderField: "Sec-WebSocket-Extensions")
-
-        // ✅ Prevent WiFi from putting the connection to sleep
-        request.setValue("true", forHTTPHeaderField: "WebSocket-Stay-Awake")
-
-        self.socket = WebSocket(request: request)
-        self.socket?.delegate = self  // ✅ Ensure WebSocket delegate is set
-        self.isConnected = false
-        self.socket?.connect()
-        self.socket?.request.setValue("8.8.8.8", forHTTPHeaderField: "DNS-Resolver")
+        DispatchQueue.main.async {
+            self.state.selectedIP = ip
+        }
+        self.connectionManager?.setIPAddress(ip: ip)
+        self.state.connectionManager = self.connectionManager
 
     }
 
@@ -240,165 +222,59 @@ class ARDepthViewController: UIViewController, ARSessionDelegate, WebSocketDeleg
         
     /// Sends a request to **reset the ROS2 system** via WebSocket.
     func sendResetRequest() {
-        self.setIPAddress(ip: self.selectedIP)
+//        self.setIPAddress(ip: self.state.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.publishToTopic(msg: [:], topic: "/reset")
+            self.connectionManager?.publishToTopic(msg: [:], topic: "/reset")
         }
     }
     
     /// Sends a request to **save the current global map** in ROS2.
     func sendSaveRequest() {
-        self.setIPAddress(ip: self.selectedIP)
+//        self.setIPAddress(ip: self.state.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.sendServiceRequest(service: "/save_global_map")
+            self.connectionManager?.sendServiceRequest(service: "/save_global_map")
         }
     }
     func sendToggleSaveInputRequest() {
-        self.setIPAddress(ip: self.selectedIP)
+//        self.setIPAddress(ip: self.state.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            self.sendServiceRequest(service: "/toggle_save_inputs")
+            self.state.toggleIsSavingInputs()
         }
     }
     
     func sendGetAlgorithmsRequest() {
-        self.isLoading = true
-        self.setIPAddress(ip: self.selectedIP)
+//        self.setIPAddress(ip: self.state.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.sendServiceRequest(service: "/get_algorithms_list", type: "custom_interfaces/srv/GetAlgorithmsList")
+            self.state.getAlgorithmsList()
+
         }
     }
     
     func changeAlgorithms(alg_str: String) {
-        self.setIPAddress(ip: self.selectedIP)
+//        self.setIPAddress(ip: self.state.selectedIP)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.sendServiceRequest(service: "/set_algorithm", args: ["algorithm": alg_str], type: "custom_interfaces/srv/SetAlgorithm")
+            self.state.updateAlgorithm(alg_str: alg_str)
         }
     }
-
-    /// Handles WebSocket connection events.
-    func didReceive(event: Starscream.WebSocketEvent, client: any Starscream.WebSocketClient) {
-        print(event, client)
-
-        switch event {
-        case .connected(_):
-            isConnected = true
-            print("✅ WebSocket Connected to \(self.selectedIP)")
-
-        case .disconnected(let reason, let code):
-            isConnected = false
-            print("❌ WebSocket Disconnected: \(reason) (Code: \(code))")
-        case .text(let string):
-            print("string", string)
-            parseReceivedString(msg: string)
-        case .binary(let data):
-            print("binary", data)
-        case .error(let error):
-            isConnected = false
-            print("⚠️ WebSocket Error: \(error?.localizedDescription ?? "Unknown error")")
-
-        default:
-            print("unkown")
-            break
+    func changeDescriptor(desc_str: String) {
+//        self.setIPAddress(ip: self.state.selectedIP)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.state.updateDescriptor(desc_str: desc_str)
         }
     }
     
-    /// Sends a service request to a **ROS2 service** via WebSocket.
-    func sendServiceRequest(service: String, args: [AnyHashable:Any] = [:], type: String = "std_srvs/srv/Trigger") {
-        let message: [String: Any] = [
-            "op": "call_service",
-            "service": service,
-//            "type": type,
-            "id": service,
-            "args": args
-        ]
-
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: message, options: [])
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                socket?.write(string: jsonString)
-                print("Sent \(service) request via WebSocket")
-            }
-        } catch {
-            print("Failed to encode JSON: \(error)")
-        }
-    }
-       
-   /// Publishes a **ROS2 topic message** over the WebSocket.
-    func publishToTopic(msg: Any, topic: String) {
-        
-        // Wrap in a rosbridge-style JSON message
-        let jsonMessage: [String: Any] = [
-            "op": "publish",
-            "topic": topic,
-            "compression": "cbor",
-            "msg": msg
-        ]
-
-        // Serialize to JSON and send over the websocket
-        do {
-            let jsonData = try JSONSerialization.data(withJSONObject: jsonMessage, options: [])
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                socket?.write(string: jsonString)
-            }
-        } catch {
-            print("Failed to publish to topic \(error)")
+    func sendSetParameter(param: Parameter) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.state.updateParameter(param: param)
         }
     }
     
-    func parseReceivedString(msg: String) {
-        print(msg)
-        if let data = msg.data(using: .utf8) {
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                   let id = json["id"] as? String,
-                   let values = json["values"] as? [String: Any]
-                {
-                    switch id {
-                    case "/get_algorithms_list":
-                        handleGetAlgorithmList(values: values)
-                    default:
-                        break
-                    }
-                }
-            } catch {
-                print("Failed to parse JSON: \(error)")
-            }
-        }
-    }
-    func handleGetAlgorithmList(values: [String: Any]) {
-        self.availableAlgorithms = values["algorithms"] as? [String] ?? []
-        self.isLoading = false
-        print(self.availableAlgorithms)
-        
-    }
-    
+   
     func projecPixelTo3D(x: Float, y: Float, z: Float) -> Point {
         let xn = (x - self.cameraIntrinsics.cx) * z / self.cameraIntrinsics.fx
         let yn = (y - self.cameraIntrinsics.cy) * z / self.cameraIntrinsics.fy
         return Point(x: xn, y: yn, z: z)
     }
     
-    func updateParameterValue(name: String, value: Any) {
-        let message: [String: Any] = [
-            "op":   "set_param",
-            "name": name,
-            "value": value
-        ]
-        send(json: message)
-    }
-    
-    // helper to serialize + send
-    private func send(json: [String:Any]) {
-        do {
-            let data = try JSONSerialization.data(withJSONObject: json, options: [])
-            if let s = String(data: data, encoding: .utf8) {
-                socket?.write(string: s)
-                print("Sent: \(s)")
-            }
-        } catch {
-            print("JSON error:", error)
-        }
-    }
-   
-    
+
 }

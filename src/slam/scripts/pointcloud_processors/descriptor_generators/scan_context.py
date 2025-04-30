@@ -20,7 +20,7 @@ class ScanContext(GenericDescriptorGenerator):
         :return: List of descriptors for the point cloud.
         """
         # Generate a single descriptor for the point cloud.
-        descriptor = self.generate_descriptor(point_cloud)
+        descriptor = self.compute_scan_context_descriptor(point_cloud)
         return descriptor
 
     def compute_scan_context_descriptor(self, scan, num_angle_bins=60, num_radius_bins=20,

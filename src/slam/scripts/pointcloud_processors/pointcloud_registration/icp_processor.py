@@ -41,8 +41,6 @@ class ICPProcessor(ProcessPointClouds):
             rclpy.logging.get_logger("icp processor")
         )
         self.pcs_to_align_with = []
-        self.prev_downsample_freq = 10
-        self.downsample_freq = 10
 
     def construct_global_map(self, point_cloud: o3d.geometry.PointCloud, voxel_size) -> o3d.geometry.PointCloud:
         """
@@ -105,48 +103,6 @@ class ICPProcessor(ProcessPointClouds):
         # self.logger.debug(f"Fitness: {result_icp.fitness}, RMSE: {result_icp.inlier_rmse}")
         self.previous_transformation.append(icp_result.transformation)
         return icp_result.transformation
-
-    def outlier_removal(self) -> None:
-        """
-        Do some basic point cloud processing on the global map every few point
-        clouds, remove outliers, downsample, etc.
-        """
-        # Pulled all of these numbers out of nowhere
-        if self.point_clouds_in_map % self.downsample_freq == 0 or self.data_transfer.pixel_depth_map_queue.empty():
-            self.logger.debug(
-                "downsampling and outlier removal on global map")
-
-
-            self.global_map = self.global_map.voxel_down_sample(0.001)
-
-            # if self.point_clouds_in_map % 40 == 0:
-            #     point_cloud_map, _ = point_cloud_map.remove_statistical_outlier(
-            #         nb_neighbors=80, std_ratio=2)
-            #     # This is slow but seems to make a difference
-            #     point_cloud_map, _ = point_cloud_map.remove_radius_outlier(
-            #         nb_points=8, radius=0.023)
-            #
-            #     self.global_map = np.asarray(point_cloud_map.points)
-            #     self.logger.info(
-            #         "stopped downsampling and outlier removal on global map")
-            #
-            #     return
-
-            self.global_map, _ = self.global_map.remove_statistical_outlier(
-                nb_neighbors=45, std_ratio=2.6)
-
-
-    def downsample_global_map(self) -> np.ndarray:
-        """
-        Downsample the global map to reduce the number of points. maybe unnecessary
-
-        :return: The downsampled global map
-        """
-        # point_cloud = o3d.geometry.PointCloud()
-        # point_cloud.points = o3d.utility.Vector3dVector(self.global_map)
-        # point_cloud = point_cloud.voxel_down_sample(0.2)
-        # self.global_map = np.asarray(point_cloud.points)
-        return self.global_map
 
     def rebuild_global_map(self, keyframes) -> None:
         super().rebuild_global_map(keyframes, self.config.voxel_size)
