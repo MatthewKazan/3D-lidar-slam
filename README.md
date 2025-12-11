@@ -25,7 +25,7 @@ Basic knowledge of ROS2, Python and python packaging is assumed
 - [ROS2](https://docs.ros.org/en/humble/Installation.html) this was tested on Humble but other versions may work
 - [Xcode](https://developer.apple.com/xcode/) for iPhone app development though other data collection methods 
 would work as long as the data is in the correct format and sent to the correct topic
-- [Mambda + Robostack](https://robostack.github.io/GettingStarted.html) follow the instructions to install mamba and robostack. 
+- [Mamba + Robostack](https://robostack.github.io/GettingStarted.html) follow the instructions to install mamba and robostack. 
 For linux this shouldn't be necessary but for macOS it is the easiest way to install ROS2. 
 Currently, the only tested configuration is on macOS with mamba and robostack.
 
