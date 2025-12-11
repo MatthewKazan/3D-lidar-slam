@@ -2,10 +2,9 @@
 
 This project implements a **Simultaneous Localization and Mapping (SLAM)** system using an 
 iPhone LiDAR scanner, ROS2, and various algorithms to build a 3D reconstruction of an 
-indoor environment. ICP is the standard algorithm used for point cloud registration, but work 
-is being done to implement a more robust algorithm. The project is designed to be modular,
-allowing for easy integration of new algorithms and features. The system is capable of
-localizing the iPhone in the environment and building a 3D map of the environment in real-time.
+indoor environment. Currently ICP and DGR are implemented for point cloud registration and GTSAM for loop closure. 
+The project is designed to be modular, allowing for easy integration of new algorithms and features. 
+The system is capable of localizing the iPhone in the environment and building a 3D map of the environment in real-time.
 
 ## Table of Contents
 
